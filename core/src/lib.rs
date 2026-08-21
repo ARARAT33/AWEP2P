@@ -1,9 +1,8 @@
-//! AWEp2P core primitives.
-//!
-//! This crate intentionally starts with deterministic, platform-independent
-//! protocol building blocks. Networking, storage, and UI layers will depend on
-//! these primitives rather than defining their own incompatible identities.
+//! AWEp2P platform-independent security and protocol core.
+//! Platform clients must build on these primitives rather than creating
+//! incompatible identity or authorization implementations.
 
+pub mod crypto;
 pub mod identity;
 pub mod protocol;
 pub mod registry;
