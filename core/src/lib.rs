@@ -5,6 +5,7 @@
 pub mod canonical;
 pub mod crypto;
 pub mod host;
+pub mod host_directory;
 pub mod identity;
 pub mod namespace;
 pub mod network;
