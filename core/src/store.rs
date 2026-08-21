@@ -1,7 +1,6 @@
 //! AWE Store: signed, content-addressed, P2P-distributable application packages.
-use crate::{identity::Identity, permissions::Capability};
+use crate::identity::Identity;
 use blake3::Hasher;
-use ed25519_dalek::Verifier;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -52,7 +51,7 @@ pub struct AppManifest {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SignedManifest {
     pub manifest: AppManifest,
-    pub signature: [u8; 64],
+    pub signature: Vec<u8>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AWEPackage {
@@ -103,7 +102,6 @@ pub fn validate_wasm(bytes: &[u8]) -> Result<(), &'static str> {
     if bytes.len() < 8 || &bytes[..4] != b"\0asm" || &bytes[4..8] != [1, 0, 0, 0] {
         return Err("invalid WebAssembly module");
     }
-    // Store WASM modules have no host imports: this is the hard sandbox boundary.
     let mut i = 8;
     while i < bytes.len() {
         let id = bytes[i];
@@ -155,10 +153,15 @@ impl AppManifest {
 impl SignedManifest {
     pub fn verify(&self) -> Result<(), &'static str> {
         self.manifest.verify()?;
+        let signature: [u8; 64] = self
+            .signature
+            .as_slice()
+            .try_into()
+            .map_err(|_| "invalid signature length")?;
         if !Identity::verify(
             &self.manifest.developer_public_key,
             &canonical_manifest(&self.manifest),
-            &self.signature,
+            &signature,
         ) {
             return Err("invalid developer signature");
         };
@@ -207,7 +210,7 @@ impl AWEPackage {
             magic: MAGIC.to_vec(),
             manifest: SignedManifest {
                 manifest: m,
-                signature: sig,
+                signature: sig.to_vec(),
             },
             files,
         })
