@@ -175,11 +175,7 @@ async fn handshake(
         .as_slice()
         .try_into()
         .map_err(|_| NetworkError::Authentication)?;
-    if !Identity::verify(
-        &rpk,
-        &hello_bytes(version, &rid, &rpk, &re, &rnonce),
-        &rsig,
-    ) {
+    if !Identity::verify(&rpk, &hello_bytes(version, &rid, &rpk, &re, &rnonce), &rsig) {
         return Err(NetworkError::Authentication);
     }
     let shared = secret.diffie_hellman(&XPublic::from(re));
