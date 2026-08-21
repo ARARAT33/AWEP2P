@@ -4,5 +4,7 @@
 
 pub mod crypto;
 pub mod identity;
+pub mod permissions;
 pub mod protocol;
 pub mod registry;
+pub mod replay;
