@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core"]
+members = ["core", "apps/awe-node"]
 
 [workspace.package]
 edition = "2021"
@@ -20,7 +20,7 @@ argon2 = "0.5"
 chacha20poly1305 = "0.10"
 zeroize = { version = "1", features = ["derive"] }
 hex = "0.4"
-tokio = { version = "1", features = ["net", "io-util", "time", "sync", "rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["net", "io-util", "time", "sync", "rt-multi-thread", "macros", "signal"] }
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 hkdf = "0.12"
 reed-solomon-erasure = "6"
