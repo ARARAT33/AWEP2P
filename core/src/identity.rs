@@ -35,6 +35,9 @@ pub struct Identity { signing_key: SigningKey, pub public: IdentityPublic }
 impl Identity {
     pub fn generate(username: Username) -> Self {
         let signing_key = SigningKey::generate(&mut OsRng);
+        Self::from_signing_key(username, signing_key)
+    }
+    fn from_signing_key(username: Username, signing_key: SigningKey) -> Self {
         let public_key = signing_key.verifying_key().to_bytes();
         let awe_id = AweId::from_public_key(&public_key);
         Self { signing_key, public: IdentityPublic { username, awe_id, public_key } }
@@ -44,39 +47,36 @@ impl Identity {
         VerifyingKey::from_bytes(public_key).ok().and_then(|k| k.verify(message, &Signature::from_bytes(signature)).ok()).is_some()
     }
     pub fn export_secret(&self) -> [u8; 32] { self.signing_key.to_bytes() }
-    pub fn from_secret(username: Username, secret: [u8; 32]) -> Self {
-        let signing_key = SigningKey::from_bytes(&secret);
-        let public_key = signing_key.verifying_key().to_bytes();
-        Self { signing_key, public: IdentityPublic { username, awe_id: AweId::from_public_key(&public_key), public_key } }
-    }
+    pub fn from_secret(username: Username, secret: [u8; 32]) -> Self { Self::from_signing_key(username, SigningKey::from_bytes(&secret)) }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum VaultError { #[error("invalid vault format")] InvalidFormat, #[error("invalid password")] InvalidPassword, #[error("encryption failed")] Encryption, #[error("password hashing failed")] PasswordHash }
 
 #[derive(Serialize, Deserialize)]
-struct VaultRecord { version: u16, salt: String, nonce: [u8; 12], ciphertext: Vec<u8> }
+struct VaultRecord { version: u16, password_hash: String, nonce: [u8; 12], ciphertext: Vec<u8> }
 
 /// Password-protected local identity vault. The plaintext secret is never serialized.
 pub struct LocalVault;
 impl LocalVault {
     pub fn seal(identity: &Identity, password: &str) -> Result<Vec<u8>, VaultError> {
         let salt = SaltString::generate(&mut OsRng);
-        let argon = Argon2::default();
-        let hash = argon.hash_password(password.as_bytes(), &salt).map_err(|_| VaultError::PasswordHash)?;
-        let key_material = hash.hash.ok_or(VaultError::PasswordHash)?;
+        let password_hash = Argon2::default().hash_password(password.as_bytes(), &salt).map_err(|_| VaultError::PasswordHash)?.to_string();
+        let parsed = PasswordHash::new(&password_hash).map_err(|_| VaultError::PasswordHash)?;
+        let key_material = parsed.hash.ok_or(VaultError::PasswordHash)?;
         let key = Sha256::digest(key_material.as_bytes());
         let cipher = ChaCha20Poly1305::new_from_slice(&key).map_err(|_| VaultError::Encryption)?;
         let nonce_bytes: [u8; 12] = rand::random();
-        let ciphertext = cipher.encrypt(Nonce::from_slice(&nonce_bytes), identity.export_secret().as_ref()).map_err(|_| VaultError::Encryption)?;
-        let record = VaultRecord { version: VAULT_VERSION, salt: salt.to_string(), nonce: nonce_bytes, ciphertext };
+        let secret = identity.export_secret();
+        let ciphertext = cipher.encrypt(Nonce::from_slice(&nonce_bytes), secret.as_ref()).map_err(|_| VaultError::Encryption)?;
+        let record = VaultRecord { version: VAULT_VERSION, password_hash, nonce: nonce_bytes, ciphertext };
         serde_json::to_vec(&record).map_err(|_| VaultError::InvalidFormat)
     }
 
     pub fn open(data: &[u8], username: Username, password: &str) -> Result<Identity, VaultError> {
         let record: VaultRecord = serde_json::from_slice(data).map_err(|_| VaultError::InvalidFormat)?;
         if record.version != VAULT_VERSION { return Err(VaultError::InvalidFormat); }
-        let parsed = PasswordHash::new(&record.salt).map_err(|_| VaultError::InvalidFormat)?;
+        let parsed = PasswordHash::new(&record.password_hash).map_err(|_| VaultError::InvalidFormat)?;
         Argon2::default().verify_password(password.as_bytes(), &parsed).map_err(|_| VaultError::InvalidPassword)?;
         let key_material = parsed.hash.ok_or(VaultError::InvalidFormat)?;
         let key = Sha256::digest(key_material.as_bytes());
@@ -93,7 +93,7 @@ pub fn secure_random<const N: usize>() -> Zeroizing<[u8; N]> { Zeroizing::new(ra
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test] fn identity_sign_verify() { let i = Identity::generate(Username::new("ararat").unwrap()); let m = b"awe"; let s = i.sign(m); assert!(Identity::verify(&i.public.public_key, m, &s)); }
-    #[test] fn vault_roundtrip() { let i = Identity::generate(Username::new("ararat").unwrap()); let v = LocalVault::seal(&i, "correct horse battery staple").unwrap(); let r = LocalVault::open(&v, i.public.username.clone(), "correct horse battery staple").unwrap(); assert_eq!(i.public.awe_id, r.public.awe_id); }
+    #[test] fn identity_sign_verify() { let i = Identity::generate(Username::new("ararat").unwrap()); let m = b"awe"; let s = i.sign(m); assert!(Identity::verify(&i.public.public_key, m, &s)); assert!(!Identity::verify(&i.public.public_key, b"other", &s)); }
+    #[test] fn vault_roundtrip() { let i = Identity::generate(Username::new("ararat").unwrap()); let v = LocalVault::seal(&i, "correct horse battery staple").unwrap(); let r = LocalVault::open(&v, i.public.username.clone(), "correct horse battery staple").unwrap(); assert_eq!(i.public.awe_id, r.public.awe_id); assert_eq!(i.export_secret(), r.export_secret()); }
     #[test] fn bad_password_fails() { let i = Identity::generate(Username::new("ararat").unwrap()); let v = LocalVault::seal(&i, "secret").unwrap(); assert!(LocalVault::open(&v, i.public.username.clone(), "wrong").is_err()); }
 }
