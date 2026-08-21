@@ -1,20 +1,32 @@
-name: AWEp2P Core
+name: AWEp2P Workspace CI
 
 on:
   push:
+    branches: [main]
     paths:
       - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'core/**'
+      - 'apps/**'
+      - 'platforms/**'
       - '.github/workflows/core.yml'
   pull_request:
     paths:
       - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'core/**'
+      - 'apps/**'
+      - 'platforms/**'
       - '.github/workflows/core.yml'
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
+  rust:
+    name: Rust validation (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -24,3 +36,28 @@ jobs:
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
       - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  architecture:
+    name: Architecture integrity checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject unfinished markers
+        shell: bash
+        run: |
+          if grep -RInE 'TODO|FIXME|IMPLEMENT_ME|UNIMPLEMENTED|fake implementation|mock networking' core apps platforms --exclude-dir=target; then
+            echo 'Unfinished implementation marker found.'
+            exit 1
+          fi
+      - name: Verify required platform boundaries
+        run: |
+          test -f platforms/windows/service.rs
+          test -f platforms/linux/daemon.rs
+          test -f platforms/android/AndroidManifest.xml
+          test -f platforms/aweos/README.md
+          test -f core/src/network.rs
+          test -f core/src/storage.rs
+          test -f core/src/host.rs
+          test -f core/src/store.rs
+          test -f core/src/messenger.rs
+          test -f core/src/registry.rs
