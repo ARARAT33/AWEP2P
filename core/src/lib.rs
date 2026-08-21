@@ -1,9 +1,10 @@
-//! AWEp2P platform-independent security and protocol core.
-//! All platform clients build on these deterministic primitives.
+//! AWEp2P platform-independent core and real peer-to-peer transport.
+//! Platform clients build on the same identity, protocol, security and networking primitives.
 
 pub mod canonical;
 pub mod crypto;
 pub mod identity;
+pub mod network;
 pub mod permissions;
 pub mod protocol;
 pub mod registry;
