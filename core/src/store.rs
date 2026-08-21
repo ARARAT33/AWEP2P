@@ -99,7 +99,7 @@ fn valid_version(v: &str) -> bool {
 }
 
 pub fn validate_wasm(bytes: &[u8]) -> Result<(), &'static str> {
-    if bytes.len() < 8 || &bytes[..4] != b"\0asm" || &bytes[4..8] != [1, 0, 0, 0] {
+    if bytes.len() < 8 || &bytes[..4] != b"\0asm" || bytes[4..8] != [1, 0, 0, 0] {
         return Err("invalid WebAssembly module");
     }
     let mut i = 8;
@@ -169,6 +169,7 @@ impl SignedManifest {
     }
 }
 impl AWEPackage {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         identity: &Identity,
         id: &str,

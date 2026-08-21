@@ -1,4 +1,3 @@
-use blake3::Hasher;
 use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305, Key, Nonce,
@@ -119,7 +118,7 @@ pub fn encode_shards(data: &[u8], policy: &StoragePolicy) -> io::Result<Vec<Vec<
             "invalid erasure policy",
         ));
     }
-    let shard_len = (data.len() + policy.data_shards - 1) / policy.data_shards;
+    let shard_len = data.len().div_ceil(policy.data_shards);
     let mut shards = vec![vec![0u8; shard_len]; policy.data_shards + policy.parity_shards];
     for (i, byte) in data.iter().enumerate() {
         shards[i / shard_len][i % shard_len] = *byte;
@@ -234,7 +233,7 @@ impl LocalNodeStore {
 
 pub fn save_manifest(path: impl AsRef<Path>, manifest: &[u8]) -> io::Result<()> {
     let mut f = fs::File::create(path)?;
-    f.write_all(manifest);
+    f.write_all(manifest)?;
     f.flush()
 }
 pub fn load_manifest(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
