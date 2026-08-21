@@ -11,8 +11,12 @@ pub fn hash(domain: &[u8], data: &[u8]) -> [u8; 32] {
 }
 
 pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() { return false; }
+    if a.len() != b.len() {
+        return false;
+    }
     let mut v = 0u8;
-    for (x, y) in a.iter().zip(b) { v |= x ^ y; }
+    for (x, y) in a.iter().zip(b) {
+        v |= x ^ y;
+    }
     v == 0
 }
