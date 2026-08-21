@@ -25,3 +25,4 @@ x25519-dalek = { version = "2", features = ["static_secrets"] }
 hkdf = "0.12"
 reed-solomon-erasure = "6"
 blake3 = "1"
+rpassword = "7"
