@@ -21,6 +21,7 @@ reed-solomon-erasure.workspace = true
 blake3.workspace = true
 hkdf.workspace = true
 x25519-dalek.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
