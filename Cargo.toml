@@ -23,3 +23,5 @@ hex = "0.4"
 tokio = { version = "1", features = ["net", "io-util", "time", "sync", "rt-multi-thread", "macros"] }
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 hkdf = "0.12"
+reed-solomon-erasure = "6"
+blake3 = "1"
