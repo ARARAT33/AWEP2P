@@ -1,7 +1,7 @@
 //! AWEp2P platform-independent security and protocol core.
-//! Platform clients must build on these primitives rather than creating
-//! incompatible identity or authorization implementations.
+//! All platform clients build on these deterministic primitives.
 
+pub mod canonical;
 pub mod crypto;
 pub mod identity;
 pub mod permissions;
