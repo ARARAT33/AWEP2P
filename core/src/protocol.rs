@@ -11,7 +11,11 @@ pub struct ProtocolEnvelope {
 }
 
 impl ProtocolEnvelope {
-    pub fn new(message_type: impl Into<String>, request_id: impl Into<String>, payload: Vec<u8>) -> Self {
+    pub fn new(
+        message_type: impl Into<String>,
+        request_id: impl Into<String>,
+        payload: Vec<u8>,
+    ) -> Self {
         Self {
             version: PROTOCOL_VERSION,
             message_type: message_type.into(),

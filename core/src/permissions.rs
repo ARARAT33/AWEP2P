@@ -17,7 +17,13 @@ pub enum Capability {
 pub struct CapabilitySet(BTreeSet<Capability>);
 
 impl CapabilitySet {
-    pub fn grant(&mut self, capability: Capability) { self.0.insert(capability); }
-    pub fn revoke(&mut self, capability: &Capability) { self.0.remove(capability); }
-    pub fn allows(&self, capability: &Capability) -> bool { self.0.contains(capability) }
+    pub fn grant(&mut self, capability: Capability) {
+        self.0.insert(capability);
+    }
+    pub fn revoke(&mut self, capability: &Capability) {
+        self.0.remove(capability);
+    }
+    pub fn allows(&self, capability: &Capability) -> bool {
+        self.0.contains(capability)
+    }
 }
