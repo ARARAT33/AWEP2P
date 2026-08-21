@@ -182,6 +182,9 @@ impl OfflineQueue {
     pub fn len(&self) -> usize {
         self.messages.len()
     }
+    pub fn is_empty(&self) -> bool {
+        self.messages.is_empty()
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
