@@ -1,6 +1,6 @@
 //! AWEp2P platform-independent core and real peer-to-peer transport.
 //! Platform clients share identity, security, networking, namespace, storage,
-//! hosting and privacy-first messaging primitives.
+//! hosting, privacy-first messaging and decentralized application-store primitives.
 
 pub mod canonical;
 pub mod crypto;
@@ -15,3 +15,4 @@ pub mod protocol;
 pub mod registry;
 pub mod replay;
 pub mod storage;
+pub mod store;
