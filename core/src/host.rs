@@ -183,7 +183,7 @@ impl AweHost {
     }
     pub fn manifest_path(&self, domain: &str) -> PathBuf {
         self.root
-            .join(format!("{}.manifest.json", domain.replace('/', '_')))
+            .join(format!("{}.manifest.json", domain.replace('/', "_")))
     }
 }
 pub fn normalize_path(path: &str) -> io::Result<String> {

@@ -61,7 +61,7 @@ enum Control {
         public_key: [u8; 32],
         ephemeral: [u8; 32],
         nonce: [u8; 32],
-        signature: [u8; 64],
+        signature: Vec<u8>,
     },
     Ping {
         sequence: u64,
@@ -134,7 +134,7 @@ async fn handshake(
         public_key: pk,
         ephemeral,
         nonce,
-        signature: sig,
+        signature: sig.to_vec(),
     };
     let remote = if initiator {
         write_frame(&mut stream, &encode(&hello)?).await?;
@@ -171,7 +171,15 @@ async fn handshake(
     if rid == id {
         return Err(NetworkError::Protocol("self connection".into()));
     }
-    if !Identity::verify(&rpk, &hello_bytes(version, &rid, &rpk, &re, &rnonce), &rsig) {
+    let rsig: [u8; 64] = rsig
+        .as_slice()
+        .try_into()
+        .map_err(|_| NetworkError::Authentication)?;
+    if !Identity::verify(
+        &rpk,
+        &hello_bytes(version, &rid, &rpk, &re, &rnonce),
+        &rsig,
+    ) {
         return Err(NetworkError::Authentication);
     }
     let shared = secret.diffie_hellman(&XPublic::from(re));
