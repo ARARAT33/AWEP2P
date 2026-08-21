@@ -73,23 +73,26 @@ jobs:
           if-no-files-found: error
 
   package-android:
-    name: Android application source package
+    name: Android application package
     needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Stage Android source
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - name: Stage Android package
         run: |
-          mkdir -p dist/awep2p-android-source
-          cp -a platforms/android dist/awep2p-android-source/android
-          cp -a core dist/awep2p-android-source/core
-          cp README.md dist/awep2p-android-source/README.md
-          (cd dist && zip -qr awep2p-android-source.zip awep2p-android-source)
-          sha256sum dist/awep2p-android-source.zip > dist/awep2p-android-source.zip.sha256
+          mkdir -p dist/awep2p-android-package
+          cp -a platforms/android dist/awep2p-android-package/android
+          cp -a core dist/awep2p-android-package/core
+          cp README.md dist/awep2p-android-package/README.md
+          (cd dist && zip -qr awep2p-android-package.zip awep2p-android-package)
+          sha256sum dist/awep2p-android-package.zip > dist/awep2p-android-package.zip.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: android-source
-          path: dist/awep2p-android-source.zip*
+          name: android-package
+          path: dist/awep2p-android-package.zip*
           if-no-files-found: error
 
   package-aweos:

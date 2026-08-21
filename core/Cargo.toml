@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "awep2p_core"
+crate-type = ["rlib", "cdylib"]
+
 [dependencies]
 anyhow.workspace = true
 thiserror.workspace = true
