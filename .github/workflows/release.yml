@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   validate:
-    name: Validate shared Rust core
+    name: Validate workspace
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,22 +28,22 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   package-windows:
-    name: Windows distribution
+    name: Windows x64 node package
     needs: validate
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Stage Windows package
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build native node
+        run: cargo build --release -p awe-node
+      - name: Stage package
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist/awep2p-windows-x64/platforms,dist/awep2p-windows-x64/core | Out-Null
-          Copy-Item -Recurse platforms/windows dist/awep2p-windows-x64/platforms/windows
-          Copy-Item -Recurse core dist/awep2p-windows-x64/core
+          New-Item -ItemType Directory -Force -Path dist/awep2p-windows-x64 | Out-Null
+          Copy-Item target/release/awe-node.exe dist/awep2p-windows-x64/awe-node.exe
           Copy-Item README.md dist/awep2p-windows-x64/README.md
           Compress-Archive -Path dist/awep2p-windows-x64/* -DestinationPath dist/awep2p-windows-x64.zip -Force
-      - name: SHA-256
-        shell: pwsh
-        run: Get-FileHash dist/awep2p-windows-x64.zip -Algorithm SHA256 | ForEach-Object { "$($_.Hash)  awep2p-windows-x64.zip" } | Set-Content dist/awep2p-windows-x64.zip.sha256
+          Get-FileHash dist/awep2p-windows-x64.zip -Algorithm SHA256 | ForEach-Object { "$($_.Hash)  awep2p-windows-x64.zip" } | Set-Content dist/awep2p-windows-x64.zip.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64
@@ -51,16 +51,18 @@ jobs:
           if-no-files-found: error
 
   package-linux:
-    name: Linux distribution
+    name: Linux x64 node package
     needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Stage Linux package
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build native node
+        run: cargo build --release -p awe-node
+      - name: Stage package
         run: |
-          mkdir -p dist/awep2p-linux-x64/platforms dist/awep2p-linux-x64/core
-          cp -a platforms/linux dist/awep2p-linux-x64/platforms/linux
-          cp -a core dist/awep2p-linux-x64/core
+          mkdir -p dist/awep2p-linux-x64
+          cp target/release/awe-node dist/awep2p-linux-x64/awe-node
           cp README.md dist/awep2p-linux-x64/README.md
           tar -C dist -czf dist/awep2p-linux-x64.tar.gz awep2p-linux-x64
           sha256sum dist/awep2p-linux-x64.tar.gz > dist/awep2p-linux-x64.tar.gz.sha256
@@ -71,16 +73,16 @@ jobs:
           if-no-files-found: error
 
   package-android:
-    name: Android source distribution
+    name: Android application source package
     needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Stage Android package sources
+      - name: Stage Android source
         run: |
-          mkdir -p dist/awep2p-android-source/platforms/android dist/awep2p-android-source/core
-          cp -a platforms/android/. dist/awep2p-android-source/platforms/android/
-          cp -a core/. dist/awep2p-android-source/core/
+          mkdir -p dist/awep2p-android-source
+          cp -a platforms/android dist/awep2p-android-source/android
+          cp -a core dist/awep2p-android-source/core
           cp README.md dist/awep2p-android-source/README.md
           (cd dist && zip -qr awep2p-android-source.zip awep2p-android-source)
           sha256sum dist/awep2p-android-source.zip > dist/awep2p-android-source.zip.sha256
@@ -91,16 +93,16 @@ jobs:
           if-no-files-found: error
 
   package-aweos:
-    name: AWEOS integration distribution
+    name: AWEOS integration package
     needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Stage AWEOS package
+      - name: Stage AWEOS integration
         run: |
-          mkdir -p dist/awep2p-aweos-integration/platforms/aweos dist/awep2p-aweos-integration/core
-          cp -a platforms/aweos/. dist/awep2p-aweos-integration/platforms/aweos/
-          cp -a core/. dist/awep2p-aweos-integration/core/
+          mkdir -p dist/awep2p-aweos-integration
+          cp -a platforms/aweos dist/awep2p-aweos-integration/aweos
+          cp -a core dist/awep2p-aweos-integration/core
           cp README.md dist/awep2p-aweos-integration/README.md
           tar -C dist -czf dist/awep2p-aweos-integration.tar.gz awep2p-aweos-integration
           sha256sum dist/awep2p-aweos-integration.tar.gz > dist/awep2p-aweos-integration.tar.gz.sha256
