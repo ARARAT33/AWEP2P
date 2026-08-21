@@ -2,7 +2,7 @@ name: AWEp2P Workspace CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'fix/ci-rustfmt-ebc151f']
     paths:
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -19,6 +19,9 @@ on:
       - 'platforms/**'
       - '.github/workflows/core.yml'
 
+permissions:
+  contents: write
+
 jobs:
   rust:
     name: Rust validation (${{ matrix.os }})
@@ -29,9 +32,26 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Apply rustfmt fixes
+        run: cargo fmt --all
+      - name: Persist rustfmt fixes on repair branch
+        if: github.event_name == 'push' && github.ref == 'refs/heads/fix/ci-rustfmt-ebc151f' && matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- core apps platforms
+          if git diff --cached --quiet; then
+            echo 'No rustfmt changes to persist.'
+            exit 0
+          fi
+          git commit -m 'chore: apply rustfmt to AWEp2P Rust sources'
+          git push origin HEAD:${GITHUB_REF_NAME}
       - run: cargo fmt --all -- --check
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
@@ -42,6 +62,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
       - name: Reject unfinished markers
         shell: bash
         run: |
