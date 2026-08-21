@@ -1,0 +1,124 @@
+name: AWEp2P Release Packages
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate shared Rust core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo check --workspace --all-targets
+      - run: cargo test --workspace --all-targets
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  package:
+    name: Package platform distributions
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            archive: awep2p-windows-x64.zip
+            shell: pwsh
+          - name: linux-x64
+            os: ubuntu-latest
+            archive: awep2p-linux-x64.tar.gz
+            shell: bash
+          - name: android-source
+            os: ubuntu-latest
+            archive: awep2p-android-source.zip
+            shell: bash
+          - name: aweos-integration
+            os: ubuntu-latest
+            archive: awep2p-aweos-integration.tar.gz
+            shell: bash
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create package staging tree
+        shell: ${{ matrix.shell }}
+        run: |
+          if ($env:RUNNER_OS -eq 'Windows') {
+            New-Item -ItemType Directory -Force -Path dist/awep2p-windows-x64/platforms,dist/awep2p-windows-x64/core,dist/awep2p-windows-x64/docs | Out-Null
+            Copy-Item -Recurse platforms/windows dist/awep2p-windows-x64/platforms/windows
+            Copy-Item -Recurse core dist/awep2p-windows-x64/core
+            Copy-Item README.md dist/awep2p-windows-x64/README.md
+            Compress-Archive -Path dist/awep2p-windows-x64/* -DestinationPath dist/awep2p-windows-x64.zip -Force
+          } else {
+            case "${{ matrix.name }}" in
+              linux-x64)
+                mkdir -p dist/awep2p-linux-x64/platforms dist/awep2p-linux-x64/core
+                cp -a platforms/linux dist/awep2p-linux-x64/platforms/linux
+                cp -a core dist/awep2p-linux-x64/core
+                cp README.md dist/awep2p-linux-x64/README.md
+                tar -C dist -czf dist/awep2p-linux-x64.tar.gz awep2p-linux-x64
+                ;;
+              android-source)
+                mkdir -p dist/awep2p-android-source/platforms/android dist/awep2p-android-source/core
+                cp -a platforms/android/. dist/awep2p-android-source/platforms/android/
+                cp -a core/. dist/awep2p-android-source/core/
+                cp README.md dist/awep2p-android-source/README.md
+                (cd dist && zip -qr awep2p-android-source.zip awep2p-android-source)
+                ;;
+              aweos-integration)
+                mkdir -p dist/awep2p-aweos-integration/platforms/aweos dist/awep2p-aweos-integration/core
+                cp -a platforms/aweos/. dist/awep2p-aweos-integration/platforms/aweos/
+                cp -a core/. dist/awep2p-aweos-integration/core/
+                cp README.md dist/awep2p-aweos-integration/README.md
+                tar -C dist -czf dist/awep2p-aweos-integration.tar.gz awep2p-aweos-integration
+                ;;
+            esac
+          }
+      - name: Generate artifact metadata and checksum
+        shell: bash
+        run: |
+          mkdir -p dist/metadata
+          printf '{"project":"AWEp2P","version":"%s","commit":"%s","package":"%s"}\n' "${GITHUB_REF_NAME}" "${GITHUB_SHA}" "${{ matrix.archive }}" > "dist/metadata/${{ matrix.name }}.json"
+          sha256sum "dist/${{ matrix.archive }}" > "dist/${{ matrix.archive }}.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            dist/${{ matrix.archive }}
+            dist/${{ matrix.archive }}.sha256
+            dist/metadata/${{ matrix.name }}.json
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+      - name: Flatten release assets
+        run: |
+          mkdir -p release
+          find release-assets -type f -exec cp {} release/ \;
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: release/*
