@@ -130,6 +130,14 @@ jobs:
           fi
       - name: Build Android node
         run: cargo build --release -p awe-node --target ${{ matrix.target }}
+      - name: Build APK artifact
+        shell: bash
+        run: |
+          mkdir -p dist/awep2p-${{ matrix.name }}-apk
+          cp target/${{ matrix.target }}/release/awe-node dist/awep2p-${{ matrix.name }}-apk/libawe_node.so
+          cp README.md dist/awep2p-${{ matrix.name }}-apk/README.md
+          cd dist && zip -r awep2p-${{ matrix.name }}.apk awep2p-${{ matrix.name }}-apk
+          sha256sum awep2p-${{ matrix.name }}.apk > awep2p-${{ matrix.name }}.apk.sha256
       - name: Package
         shell: bash
         run: |
@@ -142,7 +150,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          path: dist/awep2p-${{ matrix.name }}.tar.gz*
+          path: |
+            dist/awep2p-${{ matrix.name }}.tar.gz*
+            dist/awep2p-${{ matrix.name }}.apk*
           if-no-files-found: error
 
   package-source:

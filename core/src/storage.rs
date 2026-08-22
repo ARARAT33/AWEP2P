@@ -30,6 +30,17 @@ pub struct StoragePolicy {
     pub replica_count: usize,
 }
 
+impl StoragePolicy {
+    pub fn hyper_sovereign() -> Self {
+        Self {
+            data_shards: 450,
+            parity_shards: 550,
+            max_chunk_size: 4 * 1024 * 1024,
+            replica_count: 3,
+        }
+    }
+}
+
 impl Default for StoragePolicy {
     fn default() -> Self {
         Self {
@@ -265,6 +276,15 @@ mod tests {
         shards[9] = None;
         let recovered = recover_shards(&mut shards, &p).unwrap();
         assert_eq!(&recovered[..data.len()], &data[..]);
+    }
+
+    #[test]
+    fn hyper_sovereign_policy_spec() {
+        let p = StoragePolicy::hyper_sovereign();
+        assert_eq!(p.data_shards, 450);
+        assert_eq!(p.parity_shards, 550);
+        assert_eq!(p.data_shards + p.parity_shards, 1000);
+        assert_eq!(p.replica_count, 3);
     }
     #[test]
     fn content_addressed_store() {
