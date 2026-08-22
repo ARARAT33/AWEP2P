@@ -2,6 +2,12 @@ name: AWEp2P Release Packages
 
 on:
   workflow_dispatch:
+    inputs:
+      release:
+        description: Create a GitHub Release from the selected tag
+        required: false
+        default: false
+        type: boolean
   push:
     tags:
       - 'v*.*.*'
@@ -13,37 +19,43 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
 jobs:
   validate:
-    name: Validate workspace
+    name: Validate Rust workspace
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   package-windows:
-    name: Windows x64 node package
+    name: Windows x64
     needs: validate
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Build native node
         run: cargo build --release -p awe-node
-      - name: Stage package
+      - name: Package
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist/awep2p-windows-x64 | Out-Null
           Copy-Item target/release/awe-node.exe dist/awep2p-windows-x64/awe-node.exe
           Copy-Item README.md dist/awep2p-windows-x64/README.md
           Compress-Archive -Path dist/awep2p-windows-x64/* -DestinationPath dist/awep2p-windows-x64.zip -Force
-          Get-FileHash dist/awep2p-windows-x64.zip -Algorithm SHA256 | ForEach-Object { "$($_.Hash)  awep2p-windows-x64.zip" } | Set-Content dist/awep2p-windows-x64.zip.sha256
+          (Get-FileHash dist/awep2p-windows-x64.zip -Algorithm SHA256).Hash.ToLower() + '  awep2p-windows-x64.zip' | Set-Content dist/awep2p-windows-x64.zip.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64
@@ -51,15 +63,16 @@ jobs:
           if-no-files-found: error
 
   package-linux:
-    name: Linux x64 node package
+    name: Linux x64
     needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Build native node
         run: cargo build --release -p awe-node
-      - name: Stage package
+      - name: Package
         run: |
           mkdir -p dist/awep2p-linux-x64
           cp target/release/awe-node dist/awep2p-linux-x64/awe-node
@@ -73,51 +86,85 @@ jobs:
           if-no-files-found: error
 
   package-android:
-    name: Android application package
+    name: Android native binaries
     needs: validate
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-linux-android
+            name: android-arm64
+          - target: armv7-linux-androideabi
+            name: android-armv7
+          - target: x86_64-linux-android
+            name: android-x86_64
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK and NDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android NDK
+        shell: bash
+        run: |
+          sdkmanager --install 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.2.12479018'
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
-      - name: Stage Android package
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Configure Android linker
+        shell: bash
         run: |
-          mkdir -p dist/awep2p-android-package
-          cp -a platforms/android dist/awep2p-android-package/android
-          cp -a core dist/awep2p-android-package/core
-          cp README.md dist/awep2p-android-package/README.md
-          (cd dist && zip -qr awep2p-android-package.zip awep2p-android-package)
-          sha256sum dist/awep2p-android-package.zip > dist/awep2p-android-package.zip.sha256
+          NDK="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          if [ '${{ matrix.target }}' = 'aarch64-linux-android' ]; then
+            echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK/aarch64-linux-android35-clang" >> "$GITHUB_ENV"
+          elif [ '${{ matrix.target }}' = 'armv7-linux-androideabi' ]; then
+            echo "CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER=$NDK/armv7a-linux-androideabi35-clang" >> "$GITHUB_ENV"
+          elif [ '${{ matrix.target }}' = 'x86_64-linux-android' ]; then
+            echo "CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER=$NDK/x86_64-linux-android35-clang" >> "$GITHUB_ENV"
+          fi
+      - name: Build Android node
+        run: cargo build --release -p awe-node --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist/awep2p-${{ matrix.name }}
+          cp target/${{ matrix.target }}/release/awe-node dist/awep2p-${{ matrix.name }}/awe-node
+          cp README.md dist/awep2p-${{ matrix.name }}/README.md
+          chmod +x dist/awep2p-${{ matrix.name }}/awe-node
+          tar -C dist -czf dist/awep2p-${{ matrix.name }}.tar.gz awep2p-${{ matrix.name }}
+          sha256sum dist/awep2p-${{ matrix.name }}.tar.gz > dist/awep2p-${{ matrix.name }}.tar.gz.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: android-package
-          path: dist/awep2p-android-package.zip*
+          name: ${{ matrix.name }}
+          path: dist/awep2p-${{ matrix.name }}.tar.gz*
           if-no-files-found: error
 
-  package-aweos:
-    name: AWEOS integration package
+  package-source:
+    name: Source package
     needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Stage AWEOS integration
+      - name: Package source
         run: |
-          mkdir -p dist/awep2p-aweos-integration
-          cp -a platforms/aweos dist/awep2p-aweos-integration/aweos
-          cp -a core dist/awep2p-aweos-integration/core
-          cp README.md dist/awep2p-aweos-integration/README.md
-          tar -C dist -czf dist/awep2p-aweos-integration.tar.gz awep2p-aweos-integration
-          sha256sum dist/awep2p-aweos-integration.tar.gz > dist/awep2p-aweos-integration.tar.gz.sha256
+          mkdir -p dist
+          git archive --format=tar.gz --prefix=AWEP2P-${GITHUB_SHA}/ HEAD > dist/awep2p-source.tar.gz
+          sha256sum dist/awep2p-source.tar.gz > dist/awep2p-source.tar.gz.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: aweos-integration
-          path: dist/awep2p-aweos-integration.tar.gz*
+          name: source
+          path: dist/awep2p-source.tar.gz*
           if-no-files-found: error
 
   release:
     name: Publish GitHub Release
-    needs: [package-windows, package-linux, package-android, package-aweos]
+    needs: [package-windows, package-linux, package-android, package-source]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -128,10 +175,12 @@ jobs:
         run: |
           mkdir -p release
           find release-assets -type f -exec cp {} release/ \;
+          ls -lah release
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
+          name: AWEp2P ${{ github.ref_name }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: release/*
