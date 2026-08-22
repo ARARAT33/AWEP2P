@@ -61,6 +61,89 @@ pub struct PrivateManifest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AsMap {
+    pub file_id: [u8; 32],
+    pub site_id: Option<String>,
+    pub filename: String,
+    pub total_shards: usize,
+    pub data_shards: usize,
+    pub parity_shards: usize,
+    pub shard_nodes: Vec<Vec<String>>,
+}
+
+impl AsMap {
+    pub fn new(file_id: [u8; 32], filename: String, site_id: Option<String>) -> Self {
+        let policy = StoragePolicy::hyper_sovereign();
+        let mut shard_nodes = Vec::with_capacity(1000);
+        for i in 0..1000 {
+            let n1 = format!("ND-{:04X}-1000-0001-{:04X}", i, (i * 7) % 65535);
+            let n2 = format!("ND-{:04X}-2000-0002-{:04X}", i, (i * 13) % 65535);
+            let n3 = format!("ND-{:04X}-3000-0003-{:04X}", i, (i * 19) % 65535);
+            shard_nodes.push(vec![n1, n2, n3]);
+        }
+        Self {
+            file_id,
+            site_id,
+            filename,
+            total_shards: 1000,
+            data_shards: policy.data_shards,
+            parity_shards: policy.parity_shards,
+            shard_nodes,
+        }
+    }
+
+    pub fn to_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
+        serde_json::to_vec_pretty(self)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, serde_json::Error> {
+        serde_json::from_slice(bytes)
+    }
+}
+
+pub const DAILY_UPLOAD_LIMIT_BYTES: u64 = 50 * 1024 * 1024 * 1024; // 50 GB
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DailyQuotaTracker {
+    pub uploaded_today: u64,
+    pub last_reset_timestamp: u64,
+}
+
+impl Default for DailyQuotaTracker {
+    fn default() -> Self {
+        Self {
+            uploaded_today: 0,
+            last_reset_timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+        }
+    }
+}
+
+impl DailyQuotaTracker {
+    pub fn check_and_add(&mut self, bytes: u64) -> Result<(), String> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if now.saturating_sub(self.last_reset_timestamp) >= 86400 {
+            self.uploaded_today = 0;
+            self.last_reset_timestamp = now;
+        }
+        if self.uploaded_today.saturating_add(bytes) > DAILY_UPLOAD_LIMIT_BYTES {
+            return Err(format!(
+                "AWEDrive 50GB/day limit exceeded. Uploaded today: {} MB, requested: {} MB",
+                self.uploaded_today / (1024 * 1024),
+                bytes / (1024 * 1024)
+            ));
+        }
+        self.uploaded_today += bytes;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PublicManifest {
     pub file_id: [u8; 32],
     pub original_size: u64,
@@ -285,6 +368,30 @@ mod tests {
         assert_eq!(p.parity_shards, 550);
         assert_eq!(p.data_shards + p.parity_shards, 1000);
         assert_eq!(p.replica_count, 3);
+    }
+    #[test]
+    fn asmap_roundtrip() {
+        let map = AsMap::new(
+            [11u8; 32],
+            "test.txt".to_string(),
+            Some("site123".to_string()),
+        );
+        assert_eq!(map.total_shards, 1000);
+        assert_eq!(map.shard_nodes.len(), 1000);
+        assert_eq!(map.shard_nodes[0].len(), 3);
+        let bytes = map.to_bytes().unwrap();
+        let loaded = AsMap::from_bytes(&bytes).unwrap();
+        assert_eq!(loaded.filename, "test.txt");
+    }
+    #[test]
+    fn daily_quota_tracker_limits() {
+        let mut tracker = DailyQuotaTracker::default();
+        let ok_upload = 10 * 1024 * 1024 * 1024; // 10 GB
+        assert!(tracker.check_and_add(ok_upload).is_ok());
+        assert_eq!(tracker.uploaded_today, ok_upload);
+
+        let excessive_upload = 45 * 1024 * 1024 * 1024; // 45 GB (total 55 GB > 50 GB)
+        assert!(tracker.check_and_add(excessive_upload).is_err());
     }
     #[test]
     fn content_addressed_store() {

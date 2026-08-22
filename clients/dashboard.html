@@ -3,29 +3,124 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AWEp2P Sovereignty Control Center & AWECloud</title>
+    <title>AWEp2P Sovereign GUI Platform</title>
     <style>
         :root {
-            --bg-color: #0b0f19;
-            --card-bg: #161f30;
+            --bg-color: #080c14;
+            --card-bg: #111827;
+            --card-border: #1f293d;
             --accent-color: #00f2fe;
-            --text-color: #e2e8f0;
+            --accent-hover: #00d8e6;
+            --text-color: #f1f5f9;
             --text-muted: #94a3b8;
-            --border-color: #1e293b;
             --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --lock-bg: rgba(15, 23, 42, 0.92);
         }
 
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
         }
 
         body {
             background-color: var(--bg-color);
             color: var(--text-color);
             padding: 20px;
+            min-height: 100vh;
+        }
+
+        /* Modal Overlay for .awesecret Authentication */
+        #auth-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(4, 7, 15, 0.95);
+            backdrop-filter: blur(8px);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .auth-card {
+            background: var(--card-bg);
+            border: 1px solid var(--accent-color);
+            border-radius: 16px;
+            padding: 35px;
+            width: 100%;
+            max-width: 480px;
+            box-shadow: 0 0 30px rgba(0, 242, 254, 0.2);
+            text-align: center;
+        }
+
+        .auth-card h2 {
+            color: var(--accent-color);
+            margin-bottom: 10px;
+            font-size: 1.6rem;
+        }
+
+        .auth-card p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 25px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        input[type="text"], input[type="password"], input[type="file"], select, textarea {
+            width: 100%;
+            padding: 12px 16px;
+            background: #090e17;
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus, select:focus {
+            border-color: var(--accent-color);
+        }
+
+        .btn {
+            padding: 12px 24px;
+            background: var(--accent-color);
+            color: #0b0f19;
+            border: none;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+        }
+
+        .btn:hover {
+            background: var(--accent-hover);
+        }
+
+        .btn-secondary {
+            background: #1e293b;
+            color: var(--text-color);
+        }
+
+        .btn-secondary:hover {
+            background: #334155;
         }
 
         header {
@@ -33,22 +128,81 @@
             justify-content: space-between;
             align-items: center;
             padding-bottom: 20px;
-            border-bottom: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--card-border);
             margin-bottom: 25px;
+            flex-wrap: wrap;
+            gap: 15px;
         }
 
-        h1 {
+        .brand h1 {
             color: var(--accent-color);
             font-size: 1.8rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
         }
 
         .badge {
             background: rgba(0, 242, 254, 0.1);
             color: var(--accent-color);
-            padding: 6px 12px;
+            padding: 6px 14px;
             border-radius: 20px;
             border: 1px solid var(--accent-color);
             font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .nd-badge {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+            border: 1px solid var(--success);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            font-family: monospace;
+        }
+
+        /* Navigation Tabs */
+        .nav-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 25px;
+            border-bottom: 1px solid var(--card-border);
+            padding-bottom: 10px;
+            overflow-x: auto;
+        }
+
+        .tab-btn {
+            padding: 10px 20px;
+            background: transparent;
+            color: var(--text-muted);
+            border: 1px solid transparent;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .tab-btn.active {
+            background: var(--card-bg);
+            color: var(--accent-color);
+            border-color: var(--accent-color);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
         }
 
         .grid {
@@ -61,19 +215,23 @@
         .card {
             background-color: var(--card-bg);
             border-radius: 12px;
-            padding: 20px;
-            border: 1px solid var(--border-color);
+            padding: 22px;
+            border: 1px solid var(--card-border);
+            position: relative;
         }
 
         .card h3 {
             margin-bottom: 15px;
             color: #f8fafc;
             font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
         }
 
         .metric {
-            font-size: 2rem;
-            font-weight: bold;
+            font-size: 2.2rem;
+            font-weight: 800;
             color: var(--accent-color);
             margin-bottom: 5px;
         }
@@ -81,47 +239,137 @@
         .sub-text {
             color: var(--text-muted);
             font-size: 0.9rem;
+            line-height: 1.4;
         }
 
+        /* Locked Overlay for workspace requirements */
+        .workspace-lock {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--lock-bg);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 20px;
+            z-index: 10;
+        }
+
+        .lock-icon {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            color: var(--warning);
+        }
+
+        /* Sovereign Browser */
         .browser-bar {
             display: flex;
             gap: 10px;
             margin-bottom: 15px;
         }
 
-        input[type="text"] {
-            flex: 1;
-            padding: 10px 15px;
-            background: #0f172a;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            color: #fff;
-        }
-
-        button {
-            padding: 10px 20px;
-            background: var(--accent-color);
-            color: #0b0f19;
-            border: none;
-            border-radius: 8px;
-            font-weight: bold;
-            cursor: pointer;
-        }
-
-        button:hover {
-            opacity: 0.9;
-        }
-
         .viewport {
             width: 100%;
-            height: 250px;
+            height: 320px;
             background: #040711;
             border-radius: 8px;
-            border: 1px dashed var(--border-color);
+            border: 1px dashed var(--card-border);
             display: flex;
             align-items: center;
             justify-content: center;
             color: var(--text-muted);
+            padding: 20px;
+            text-align: center;
+            overflow-y: auto;
+        }
+
+        /* Messenger Chat Layout */
+        .messenger-box {
+            display: grid;
+            grid-template-columns: 240px 1fr;
+            gap: 15px;
+            height: 380px;
+            background: #070b14;
+            border-radius: 8px;
+            border: 1px solid var(--card-border);
+            overflow: hidden;
+        }
+
+        .chat-list {
+            border-right: 1px solid var(--card-border);
+            padding: 10px;
+            overflow-y: auto;
+        }
+
+        .chat-item {
+            padding: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-bottom: 5px;
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .chat-item:hover, .chat-item.active {
+            background: rgba(0, 242, 254, 0.15);
+            color: var(--accent-color);
+        }
+
+        .chat-window {
+            display: flex;
+            flex-direction: column;
+            padding: 15px;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .msg-bubble {
+            max-width: 70%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+
+        .msg-sent {
+            align-self: flex-end;
+            background: var(--accent-color);
+            color: #080c14;
+            font-weight: 600;
+        }
+
+        .msg-recv {
+            align-self: flex-start;
+            background: #1e293b;
+            color: #fff;
+        }
+
+        .progress-bar-bg {
+            width: 100%;
+            height: 12px;
+            background: #090e17;
+            border-radius: 6px;
+            overflow: hidden;
+            margin: 10px 0;
+            border: 1px solid var(--card-border);
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-color), var(--success));
+            width: 0%;
+            transition: width 0.3s;
         }
 
         .status-dot {
@@ -136,69 +384,414 @@
 </head>
 <body>
 
-    <header>
-        <h1>AWEp2P Sovereign Web & AWECloud Control Center</h1>
-        <div class="badge"><span class="status-dot"></span> Light Node Active (Seeding Enabled)</div>
-    </header>
+    <!-- Authentication Modal -->
+    <div id="auth-modal">
+        <div class="auth-card">
+            <h2>AWEp2P Sovereign Access</h2>
+            <p>Enter your Username and load your <code>.awesecret</code> key to enter the node network. Zero central authority.</p>
 
-    <div class="grid">
-        <!-- Resource Dashboard -->
-        <div class="card">
-            <h3>Global Network Resources</h3>
-            <div class="metric" id="total-storage">10,240 TB</div>
-            <div class="sub-text">Total Storage Across Active Nodes</div>
-            <br>
-            <div class="metric" id="available-storage">7,890 TB</div>
-            <div class="sub-text">Available User Quota (1000 Shards / 3x Replicated)</div>
-        </div>
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" id="auth-username" placeholder="e.g. ararat" value="ararat">
+            </div>
 
-        <!-- Node & Seeding Health -->
-        <div class="card">
-            <h3>Local Node Status</h3>
-            <div class="metric">Ephemeral Seeder</div>
-            <div class="sub-text">Auto-sharing 1/1000th fragment per visited site</div>
-            <br>
-            <div class="sub-text">Active Connected Peers: <strong style="color: #fff;">1,420 Nodes</strong></div>
-            <div class="sub-text">Dynamic Self-Repair: <strong style="color: var(--success);">100% Operational</strong></div>
-        </div>
+            <div class="form-group">
+                <label>.awesecret Credential / Password</label>
+                <input type="password" id="auth-secret" placeholder="Enter secret key or upload .awesecret file" value="awe-secret-key-32bytes-hex-ararat">
+            </div>
 
-        <!-- Cloud Storage Hosting (AWECloud) -->
-        <div class="card">
-            <h3>AWECloud Decentralized Hosting</h3>
-            <div class="sub-text" style="margin-bottom: 15px;">Amazon/Google Cloud-grade decentralized bucket storage.</div>
-            <button onclick="deploySite()">Deploy Anonymous Site (.awe)</button>
-            <button style="background: #334155; color: #fff; margin-left: 5px;" onclick="uploadFile()">Upload Object</button>
+            <div class="form-group">
+                <label>Or select .awesecret file</label>
+                <input type="file" id="auth-file" accept=".awesecret,.json" onchange="readSecretFile(event)">
+            </div>
+
+            <button class="btn" style="width: 100%;" onclick="authenticateUser()">Authenticate & Join P2P Mesh</button>
         </div>
     </div>
 
-    <!-- P2P Sovereign Browser Viewer -->
-    <div class="card">
-        <h3>AWE Sovereign Browser Viewer</h3>
-        <div class="browser-bar">
-            <input type="text" id="url-input" value="awe://hyper-sovereign.awe" placeholder="awe://domain.awe">
-            <button onclick="navigate()">Navigate</button>
+    <!-- Main Header -->
+    <header>
+        <div class="brand">
+            <h1>🌐 AWEp2P Sovereign Platform</h1>
         </div>
-        <div class="viewport" id="browser-view">
-            <div>
-                <p><strong>Status:</strong> Ready to fetch via 1000-shard Reed-Solomon consensus.</p>
-                <p style="font-size: 0.85rem; margin-top: 5px;">450/1000 shards required for full recovery.</p>
+        <div class="user-info">
+            <span class="nd-badge" id="nd-display">ND-0000-0000-0000</span>
+            <span class="badge" id="user-display">User: Anonymous</span>
+            <div class="badge"><span class="status-dot"></span> Mesh Active</div>
+        </div>
+    </header>
+
+    <!-- Navigation Workspace Tabs -->
+    <div class="nav-tabs">
+        <button class="tab-btn active" onclick="switchTab('node-workspace')">🖥️ Node Workspace</button>
+        <button class="tab-btn" onclick="switchTab('site-workspace')">🌐 Site Workspace</button>
+        <button class="tab-btn" onclick="switchTab('awecloud-workspace')">☁️ AWECloud Workspace</button>
+        <button class="tab-btn" onclick="switchTab('awedrive')">📁 AWEDrive (50GB/day)</button>
+        <button class="tab-btn" onclick="switchTab('awemessenger')">💬 AWEMessenger</button>
+        <button class="tab-btn" onclick="switchTab('awebrowser')">🔍 Sovereign Browser</button>
+    </div>
+
+    <!-- 1. Node Workspace Tab -->
+    <div id="node-workspace" class="tab-content active">
+        <div class="grid">
+            <div class="card">
+                <h3>Node Resource Allocator</h3>
+                <div class="form-group">
+                    <label>Storage Contribution (GB)</label>
+                    <input type="text" id="node-storage-input" value="120" onchange="updateNodeResources()">
+                </div>
+                <div class="form-group">
+                    <label>Bandwidth Contribution (Mbps)</label>
+                    <input type="text" id="node-bandwidth-input" value="1050" onchange="updateNodeResources()">
+                </div>
+                <div class="form-group">
+                    <label>Hardware Hardware Capabilities</label>
+                    <select id="hardware-type" onchange="updateNodeResources()">
+                        <option value="gpu_ssd">GPU Accelerated + SSD Storage</option>
+                        <option value="tpu_ssd">TPU Core + High-Speed SSD</option>
+                        <option value="cpu_hdd">Standard CPU + HDD Storage</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Global P2P Mesh Health</h3>
+                <div class="metric" id="active-peers">1,842 Peers</div>
+                <div class="sub-text">Connected P2P Nodes via XOR Distance DHT</div>
+                <br>
+                <div class="sub-text">Dynamic Self-Repair: <strong style="color: var(--success);">Active (1000 Shards)</strong></div>
+                <div class="sub-text">Ephemeral Micro-Seeder: <strong style="color: var(--accent-color);">Enabled (Auto-seeding visited chunks)</strong></div>
+            </div>
+
+            <div class="card">
+                <h3>Node Descriptor & Status</h3>
+                <div class="sub-text">Node ID: <strong style="color: var(--accent-color);" id="node-descriptor-text">ND-7A89-B2C1-D3E4</strong></div>
+                <div class="sub-text">Reputation Score: <strong style="color: var(--success);">100% Sovereign Trust</strong></div>
+                <div class="sub-text">IP / GPS Anonymity: <strong style="color: var(--success);">100% Protected (No Location Leaks)</strong></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. Site Workspace Tab -->
+    <div id="site-workspace" class="tab-content">
+        <div class="grid">
+            <div class="card" id="site-workspace-card">
+                <div id="site-lock" class="workspace-lock" style="display: none;">
+                    <div class="lock-icon">🔒</div>
+                    <h3>Site Workspace Locked</h3>
+                    <p class="sub-text">Requires minimum <strong>10 GB Storage</strong> and <strong>50 Mbps Bandwidth</strong> contribution.</p>
+                </div>
+
+                <h3>Site Generator & Deployment</h3>
+                <p class="sub-text" style="margin-bottom: 15px;">Publish anonymous P2P websites. Split into 1000 Reed-Solomon fragments with 3x replication across global nodes.</p>
+
+                <div class="form-group">
+                    <label>Domain Generator / Custom Domain</label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="domain-input" value="awe://sovereign-node.awe">
+                        <button class="btn btn-secondary" onclick="generateDomain()">Generate Domain</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Site ID (sid)</label>
+                    <input type="text" id="site-id-display" value="sid-9f8e7d6c5b4a3210" readonly style="background: #040711; color: var(--accent-color); font-family: monospace;">
+                </div>
+
+                <div class="form-group">
+                    <label>Site HTML Content / Bundle</label>
+                    <textarea id="site-html-content" rows="4" style="width: 100%; padding: 10px; background: #090e17; color: #fff; border: 1px solid var(--card-border); border-radius: 8px;"><h1>Welcome to My AWE Sovereign Website</h1><p>Hosted purely across 1000 P2P nodes!</p></textarea>
+                </div>
+
+                <button class="btn" onclick="publishSite()">Publish Site to 1000 Node Shards</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. AWECloud Workspace Tab -->
+    <div id="awecloud-workspace" class="tab-content">
+        <div class="grid">
+            <div class="card" id="awecloud-workspace-card">
+                <div id="awecloud-lock" class="workspace-lock" style="display: none;">
+                    <div class="lock-icon">🔒</div>
+                    <h3>AWECloud Locked</h3>
+                    <p class="sub-text">Requires minimum <strong>100 GB Storage</strong>, <strong>GPU Acceleration</strong>, and <strong>1 Gbps Bandwidth</strong> contribution.</p>
+                </div>
+
+                <h3>AWECloud AWS-Grade Sovereign Compute</h3>
+                <p class="sub-text" style="margin-bottom: 15px;">High-performance cloud infrastructure running on distributed AWE nodes.</p>
+
+                <div class="grid" style="grid-template-columns: 1fr 1fr; margin-bottom: 15px;">
+                    <div>
+                        <div class="sub-text">P2P Compute Clusters</div>
+                        <div class="metric" style="font-size: 1.5rem;">64 Active vCPUs</div>
+                    </div>
+                    <div>
+                        <div class="sub-text">Distributed GPU Shards</div>
+                        <div class="metric" style="font-size: 1.5rem; color: var(--success);">NVIDIA RTX Mesh</div>
+                    </div>
+                </div>
+
+                <button class="btn" onclick="deployCloudInstance()">Launch Sovereign Cloud Instance</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. AWEDrive Tab -->
+    <div id="awedrive" class="tab-content">
+        <div class="grid">
+            <div class="card">
+                <h3>AWEDrive P2P Storage</h3>
+                <p class="sub-text">Google Drive-like decentralized storage. Files are split into 1000 shards (450 data / 550 parity) and 3x replicated.</p>
+                <br>
+                <div class="sub-text">Daily Upload Quota Tracker (Max 50 GB / 24 Hours):</div>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" id="quota-progress" style="width: 12%;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between;" class="sub-text">
+                    <span id="quota-used">6.0 GB Uploaded Today</span>
+                    <span>50.0 GB Max Limit</span>
+                </div>
+                <br>
+                <div class="form-group">
+                    <label>Select File to Upload</label>
+                    <input type="file" id="drive-upload-file">
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn" onclick="uploadDriveFile(false)">Upload Public File (sid)</button>
+                    <button class="btn btn-secondary" onclick="uploadDriveFile(true)">Upload Private File (.asmap)</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Uploaded Objects & .asmap Maps</h3>
+                <div id="drive-file-list" class="sub-text" style="display: flex; flex-direction: column; gap: 10px;">
+                    <div style="padding: 10px; background: #090e17; border-radius: 8px; border: 1px solid var(--card-border);">
+                        <strong>document_sovereign.pdf</strong> (14.2 MB)<br>
+                        <span style="font-size: 0.8rem; color: var(--accent-color);">.asmap: asmap-doc-9821.asmap (1000 shards map)</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. AWEMessenger Tab -->
+    <div id="awemessenger" class="tab-content">
+        <div class="card">
+            <h3>AWEMessenger — Telegram-like P2P Chat</h3>
+            <p class="sub-text" style="margin-bottom: 15px;">End-to-end encrypted node-to-node direct messaging and group chats.</p>
+
+            <div class="messenger-box">
+                <div class="chat-list">
+                    <div class="chat-item active" onclick="selectChat('Node Mesh Global')"># Node Mesh Global</div>
+                    <div class="chat-item" onclick="selectChat('ararat.awe')">👤 ararat.awe</div>
+                    <div class="chat-item" onclick="selectChat('sarkis.awe')">👤 sarkis.awe</div>
+                </div>
+                <div class="chat-window">
+                    <div class="chat-messages" id="chat-messages">
+                        <div class="msg-bubble msg-recv">
+                            <strong>System:</strong> Welcome to AWEMessenger! Messages are encrypted with ChaCha20Poly1305 and routed directly across P2P nodes.
+                        </div>
+                        <div class="msg-bubble msg-recv">
+                            <strong>ararat.awe:</strong> Hello from node ND-1A2B-3C4D!
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="chat-input" placeholder="Type an encrypted message..." onkeydown="if(event.key==='Enter') sendMessage()">
+                        <button class="btn" onclick="sendMessage()">Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 6. Sovereign Browser Tab -->
+    <div id="awebrowser" class="tab-content">
+        <div class="card">
+            <h3>AWE Sovereign Browser Viewer</h3>
+            <div class="browser-bar">
+                <input type="text" id="browser-url" value="awe://sovereign-node.awe" placeholder="awe://domain.awe or sid://id">
+                <button class="btn" onclick="navigateBrowser()">Navigate</button>
+            </div>
+            <div class="viewport" id="browser-viewport">
+                <div>
+                    <h2 style="color: var(--accent-color); margin-bottom: 10px;">AWE Sovereign Browser</h2>
+                    <p>Enter any <code>awe://</code> domain or <code>sid://</code> site identifier.</p>
+                    <p style="font-size: 0.85rem; margin-top: 10px; color: var(--text-muted);">Reconstructs HTML content from 450/1000 Reed-Solomon shards across the mesh.</p>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        function navigate() {
-            const url = document.getElementById('url-input').value;
-            const view = document.getElementById('browser-view');
-            view.innerHTML = `<div style="text-align: center;"><p style="color: var(--accent-color);">[AWE Mesh] Connected to site: <strong>${url}</strong></p><br><p>Seeding 1 fragment to mesh... 100% Anonymous.</p></div>`;
+        let currentUser = null;
+        let nodeStorageGB = 120;
+        let nodeBandwidthMbps = 1050;
+        let hardwareType = "gpu_ssd";
+        let dailyUploadedMB = 6144; // 6 GB
+
+        function readSecretFile(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        if (data.username) document.getElementById('auth-username').value = data.username;
+                        if (data.secret_key) document.getElementById('auth-secret').value = data.secret_key;
+                    } catch (err) {
+                        document.getElementById('auth-secret').value = e.target.result;
+                    }
+                };
+                reader.readAsText(file);
+            }
         }
 
-        function deploySite() {
-            alert('AWECloud: Site successfully encoded into 1000 shards and published to node network!');
+        function authenticateUser() {
+            const username = document.getElementById('auth-username').value.trim();
+            const secret = document.getElementById('auth-secret').value.trim();
+
+            if (!username || !secret) {
+                alert('Please provide both username and .awesecret key!');
+                return;
+            }
+
+            currentUser = username;
+            document.getElementById('user-display').innerText = 'User: ' + username;
+
+            // Calculate deterministic ND ID based on username
+            const nd = 'ND-' + username.toUpperCase().padEnd(4, 'X').substring(0, 4) + '-8821-C9F2';
+            document.getElementById('nd-display').innerText = nd;
+            document.getElementById('node-descriptor-text').innerText = nd;
+
+            document.getElementById('auth-modal').style.display = 'none';
+            updateNodeResources();
         }
 
-        function uploadFile() {
-            alert('AWECloud: File encrypted and replicated 3x across global P2P nodes!');
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+            event.target.classList.add('active');
+            document.getElementById(tabId).classList.add('active');
+        }
+
+        function updateNodeResources() {
+            nodeStorageGB = parseFloat(document.getElementById('node-storage-input').value) || 0;
+            nodeBandwidthMbps = parseFloat(document.getElementById('node-bandwidth-input').value) || 0;
+            hardwareType = document.getElementById('hardware-type').value;
+
+            // Check Site Workspace Unlock (>= 10 GB Storage & >= 50 Mbps Bandwidth)
+            const siteUnlocked = (nodeStorageGB >= 10 && nodeBandwidthMbps >= 50);
+            document.getElementById('site-lock').style.display = siteUnlocked ? 'none' : 'flex';
+
+            // Check AWECloud Unlock (>= 100 GB Storage, GPU, & >= 1000 Mbps / 1 Gbps Bandwidth)
+            const isGpu = hardwareType.includes('gpu') || hardwareType.includes('tpu');
+            const cloudUnlocked = (nodeStorageGB >= 100 && isGpu && nodeBandwidthMbps >= 1000);
+            document.getElementById('awecloud-lock').style.display = cloudUnlocked ? 'none' : 'flex';
+        }
+
+        function generateDomain() {
+            const adjectives = ['sovereign', 'hyper', 'cyber', 'mesh', 'p2p', 'galaxy', 'nexus', 'liberty'];
+            const nouns = ['node', 'vault', 'space', 'cloud', 'portal', 'haven', 'world', 'network'];
+            const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+            const noun = nouns[Math.floor(Math.random() * nouns.length)];
+            const randHex = Math.floor(Math.random() * 65535).toString(16);
+
+            const domain = `awe://${adj}-${noun}-${randHex}.awe`;
+            const sid = `sid-${Math.random().toString(36).substring(2, 10)}${Math.random().toString(36).substring(2, 10)}`;
+
+            document.getElementById('domain-input').value = domain;
+            document.getElementById('site-id-display').value = sid;
+        }
+
+        function publishSite() {
+            const domain = document.getElementById('domain-input').value;
+            const sid = document.getElementById('site-id-display').value;
+            alert(`Site published successfully!\n\nDomain: ${domain}\nSite ID: ${sid}\nStatus: Encoded into 1000 shards (450 data, 550 parity) and replicated 3x on P2P nodes!`);
+        }
+
+        function deployCloudInstance() {
+            alert('AWECloud Instance Launched!\n\nContainer running anonymously on distributed AWE Node GPU/TPU network.');
+        }
+
+        function uploadDriveFile(isPrivate) {
+            const fileInput = document.getElementById('drive-upload-file');
+            const file = fileInput.files[0];
+            const fileName = file ? file.name : 'p2p_file_' + Math.floor(Math.random() * 1000) + '.bin';
+            const fileSizeMB = file ? Math.round(file.size / (1024 * 1024)) : 50;
+
+            if ((dailyUploadedMB + fileSizeMB) > 51200) { // 50 GB = 51200 MB
+                alert(`Error: Upload exceeds daily quota of 50 GB per day!\nUploaded today: ${(dailyUploadedMB/1024).toFixed(2)} GB`);
+                return;
+            }
+
+            dailyUploadedMB += fileSizeMB;
+            const quotaPercent = Math.min(100, (dailyUploadedMB / 51200) * 100);
+            document.getElementById('quota-progress').style.width = quotaPercent + '%';
+            document.getElementById('quota-used').innerText = `${(dailyUploadedMB/1024).toFixed(2)} GB Uploaded Today`;
+
+            const list = document.getElementById('drive-file-list');
+            const item = document.createElement('div');
+            item.style.cssText = 'padding: 10px; background: #090e17; border-radius: 8px; border: 1px solid var(--card-border);';
+
+            if (isPrivate) {
+                const asmapName = `asmap-${Math.random().toString(36).substring(2, 8)}.asmap`;
+                item.innerHTML = `<strong>${fileName}</strong> (${fileSizeMB} MB)<br><span style="font-size: 0.8rem; color: var(--accent-color);">Private File Map: ${asmapName} (1000 shards map saved locally)</span>`;
+            } else {
+                const sid = `sid-${Math.random().toString(36).substring(2, 12)}`;
+                item.innerHTML = `<strong>${fileName}</strong> (${fileSizeMB} MB)<br><span style="font-size: 0.8rem; color: var(--success);">Public Site ID: ${sid}</span>`;
+            }
+
+            list.prepend(item);
+            alert(`File uploaded to AWEDrive!\nSplit into 1000 Reed-Solomon shards across node mesh.${isPrivate ? '\n.asmap layout map generated for private access.' : ''}`);
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const msgText = input.value.trim();
+            if (!msgText) return;
+
+            const chatMessages = document.getElementById('chat-messages');
+            const msgBubble = document.createElement('div');
+            msgBubble.className = 'msg-bubble msg-sent';
+            msgBubble.innerText = msgText;
+            chatMessages.appendChild(msgBubble);
+
+            input.value = '';
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            // Simulate encrypted node response
+            setTimeout(() => {
+                const recvBubble = document.createElement('div');
+                recvBubble.className = 'msg-bubble msg-recv';
+                recvBubble.innerHTML = `<strong>ararat.awe:</strong> [Encrypted P2P]: Received "${msgText}"`;
+                chatMessages.appendChild(recvBubble);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }, 800);
+        }
+
+        function selectChat(name) {
+            document.querySelectorAll('.chat-item').forEach(item => item.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+
+        function navigateBrowser() {
+            const url = document.getElementById('browser-url').value.trim();
+            const viewport = document.getElementById('browser-viewport');
+
+            viewport.innerHTML = `
+                <div style="width: 100%; text-align: left;">
+                    <div style="background: rgba(0, 242, 254, 0.1); border: 1px solid var(--accent-color); padding: 10px; border-radius: 8px; margin-bottom: 15px;">
+                        <strong style="color: var(--accent-color);">[AWE Mesh Resolver]:</strong> Connected to <strong>${url}</strong><br>
+                        <span style="font-size: 0.8rem; color: var(--text-muted);">Reconstructed from 450/1000 Reed-Solomon shards. Auto-seeding 1 fragment to mesh.</span>
+                    </div>
+                    <div style="padding: 20px; background: #080c14; border-radius: 8px; border: 1px solid var(--card-border);">
+                        <h1 style="color: #fff; margin-bottom: 10px;">${url} — Sovereign P2P Site</h1>
+                        <p style="color: var(--text-muted); line-height: 1.6;">This website lives purely on user nodes without central web servers, Cloudflare, or ICANN DNS. Every visitor automatically seeds 1 fragment back to the P2P network.</p>
+                    </div>
+                </div>
+            `;
         }
     </script>
 </body>
