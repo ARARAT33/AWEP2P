@@ -9,6 +9,7 @@ version = "0.1.0"
 
 [workspace.dependencies]
 libc = "0.2"
+winapi = { version = "0.3", features = ["fileapi"] }
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
