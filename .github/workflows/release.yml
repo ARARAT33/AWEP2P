@@ -152,16 +152,13 @@ jobs:
         run: |
           set -euo pipefail
           ROOT="$PWD/android-build"
-          mkdir -p "$ROOT/src/com/awep2p" "$ROOT/res/values" "$ROOT/assets" "$ROOT/lib/${{ matrix.abi }}" "$ROOT/build"
-
-          # The Rust program remains unchanged. The generated Android shell is only
-          # a packaging/launch layer created by this workflow.
+          mkdir -p "$ROOT/src/com/awep2p" "$ROOT/res/values" "$ROOT/assets" "$ROOT/build"
           cp "target/${{ matrix.target }}/release/awe-node" "$ROOT/assets/awe-node"
           chmod 700 "$ROOT/assets/awe-node"
 
           cat > "$ROOT/AndroidManifest.xml" <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.awep2p">
             <application android:theme="@style/AppTheme" android:label="AWEp2P" android:allowBackup="false" android:supportsRtl="true">
               <activity android:name=".MainActivity" android:exported="true">
                 <intent-filter>
@@ -185,7 +182,6 @@ jobs:
 
           cat > "$ROOT/src/com/awep2p/MainActivity.java" <<'EOF'
           package com.awep2p;
-
           import android.app.Activity;
           import android.os.Bundle;
           import android.widget.TextView;
@@ -201,9 +197,8 @@ jobs:
               status.setTextSize(18);
               status.setText("AWEp2P\nStarting…");
               setContentView(status);
-              new Thread(() -> launchNode()).start();
+              new Thread(this::launchNode).start();
             }
-
             private void launchNode() {
               try {
                 File node = new File(getFilesDir(), "awe-node");
@@ -225,7 +220,6 @@ jobs:
                 runOnUiThread(() -> status.setText("AWEp2P failed to start\n" + e));
               }
             }
-
             private void copyAsset(String name, File dest) throws IOException {
               try (InputStream in = getAssets().open(name); OutputStream out = new FileOutputStream(dest)) {
                 byte[] b = new byte[65536]; int n;
@@ -242,11 +236,10 @@ jobs:
           javac -source 8 -target 8 -classpath "$PLATFORM" -d "$ROOT/build/classes" "$ROOT/src/com/awep2p/MainActivity.java"
           "$BT/d8" --min-api 23 --output "$ROOT/build" "$ROOT/build/classes/com/awep2p/MainActivity.class"
           "$BT/aapt2" compile --dir "$ROOT/res" -o "$ROOT/build/res.zip"
-          "$BT/aapt2" link -o "$ROOT/build/unsigned.apk" --manifest "$ROOT/AndroidManifest.xml" -I "$PLATFORM" --java "$ROOT/build/gen" "$ROOT/build/res.zip"
+          "$BT/aapt2" link -o "$ROOT/build/unsigned.apk" --manifest "$ROOT/AndroidManifest.xml" -I "$PLATFORM" "$ROOT/build/res.zip"
           cd "$ROOT"
-          zip -q -j build/unsigned.apk assets/awe-node
-          zip -q -j build/unsigned.apk build/classes.dex
-          "$BT/aapt2" dump packagename build/unsigned.apk >/dev/null
+          zip -q -r build/unsigned.apk assets
+          zip -q build/unsigned.apk classes.dex
           "$BT/zipalign" -f -p 4 build/unsigned.apk build/aligned.apk
           keytool -genkeypair -v -keystore build/awep2p-release.jks -storepass android -keypass android -alias awep2p -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=AWEp2P, O=AWE, C=AM'
           "$BT/apksigner" sign --ks build/awep2p-release.jks --ks-pass pass:android --key-pass pass:android --out build/awep2p-${{ matrix.name }}.apk build/aligned.apk
