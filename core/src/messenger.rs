@@ -162,6 +162,11 @@ impl Session {
     }
 }
 
+pub fn format_messenger_id(awe_id: &[u8; 32]) -> String {
+    let hex_str = hex::encode(awe_id).to_lowercase();
+    format!("awe-msg-{}-{}", &hex_str[..8], &hex_str[8..16])
+}
+
 pub fn new_ephemeral() -> (StaticSecret, PublicKey) {
     let secret = StaticSecret::random_from_rng(OsRng);
     let public = PublicKey::from(&secret);

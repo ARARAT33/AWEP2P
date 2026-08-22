@@ -70,6 +70,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "hkdf",
+ "libc",
  "rand",
  "rand_core",
  "reed-solomon-erasure",

@@ -98,14 +98,27 @@ pub struct AweSecret {
     pub username: String,
     pub awe_id: String,
     pub secret_key: String,
+    pub public_key: String,
+    pub signature: String,
 }
 
 impl AweSecret {
     pub fn generate(identity: &Identity) -> Self {
+        let username = identity.public.username.as_str().to_string();
+        let awe_id = identity.public.awe_id.to_hex();
+        let secret_key = hex::encode(identity.export_secret());
+        let public_key = hex::encode(identity.public.public_key);
+
+        let msg = format!("{}:{}:{}:{}", username, awe_id, secret_key, public_key);
+        let sig_bytes = identity.sign(msg.as_bytes());
+        let signature = hex::encode(sig_bytes);
+
         Self {
-            username: identity.public.username.as_str().to_string(),
-            awe_id: identity.public.awe_id.to_hex(),
-            secret_key: hex::encode(identity.export_secret()),
+            username,
+            awe_id,
+            secret_key,
+            public_key,
+            signature,
         }
     }
 
@@ -114,10 +127,48 @@ impl AweSecret {
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
-        serde_json::from_slice(bytes).map_err(|e| format!("Invalid .awesecret file: {e}"))
+        let secret: Self = serde_json::from_slice(bytes)
+            .map_err(|e| format!("Invalid or corrupted .awesecret file: {e}"))?;
+        secret.verify_integrity()?;
+        Ok(secret)
+    }
+
+    pub fn verify_integrity(&self) -> Result<(), String> {
+        let pub_bytes = hex::decode(&self.public_key)
+            .map_err(|_| "Invalid public_key encoding in .awesecret".to_string())?;
+        if pub_bytes.len() != 32 {
+            return Err("Invalid public_key length in .awesecret".to_string());
+        }
+        let mut pk = [0u8; 32];
+        pk.copy_from_slice(&pub_bytes);
+
+        let sig_bytes = hex::decode(&self.signature)
+            .map_err(|_| "Invalid signature encoding in .awesecret".to_string())?;
+        if sig_bytes.len() != 64 {
+            return Err("Invalid signature length in .awesecret".to_string());
+        }
+        let mut sig = [0u8; 64];
+        sig.copy_from_slice(&sig_bytes);
+
+        let calculated_id = AweId::from_public_key(&pk).to_hex();
+        if calculated_id != self.awe_id {
+            return Err("Tampered .awesecret: AWE-ID does not match public key".to_string());
+        }
+
+        let msg = format!(
+            "{}:{}:{}:{}",
+            self.username, self.awe_id, self.secret_key, self.public_key
+        );
+
+        if !Identity::verify(&pk, msg.as_bytes(), &sig) {
+            return Err("Tampered .awesecret: Cryptographic signature verification failed".to_string());
+        }
+
+        Ok(())
     }
 
     pub fn authenticate(&self) -> Result<Identity, String> {
+        self.verify_integrity()?;
         let username = Username::new(&self.username).map_err(|e| e.to_string())?;
         let secret_bytes = hex::decode(&self.secret_key).map_err(|e| e.to_string())?;
         if secret_bytes.len() != 32 {
@@ -128,6 +179,9 @@ impl AweSecret {
         let identity = Identity::from_secret(username, key);
         if identity.public.awe_id.to_hex() != self.awe_id {
             return Err("Mismatching AWE-ID in .awesecret".to_string());
+        }
+        if identity.public.public_key != hex::decode(&self.public_key).unwrap().as_slice() {
+            return Err("Mismatching public key in .awesecret".to_string());
         }
         Ok(identity)
     }
