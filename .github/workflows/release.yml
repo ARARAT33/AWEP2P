@@ -39,54 +39,61 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   package-windows:
-    name: Windows x64
+    name: Windows x86_64 executable
     needs: validate
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Build native node
-        run: cargo build --release -p awe-node
-      - name: Package
+      - name: Build Windows x86_64
+        run: cargo build --release -p awe-node --target x86_64-pc-windows-msvc
+      - name: Validate executable
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist/awep2p-windows-x64 | Out-Null
-          Copy-Item target/release/awe-node.exe dist/awep2p-windows-x64/awe-node.exe
-          Copy-Item README.md dist/awep2p-windows-x64/README.md
-          Compress-Archive -Path dist/awep2p-windows-x64/* -DestinationPath dist/awep2p-windows-x64.zip -Force
-          (Get-FileHash dist/awep2p-windows-x64.zip -Algorithm SHA256).Hash.ToLower() + '  awep2p-windows-x64.zip' | Set-Content dist/awep2p-windows-x64.zip.sha256
+          if (!(Test-Path 'target/x86_64-pc-windows-msvc/release/awe-node.exe')) { throw 'Windows executable was not produced' }
+          & 'target/x86_64-pc-windows-msvc/release/awe-node.exe' --help
+          if ($LASTEXITCODE -ne 0) { throw 'Windows executable failed its startup/help check' }
+      - name: Prepare release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item 'target/x86_64-pc-windows-msvc/release/awe-node.exe' 'dist/awep2p-windows-x86_64.exe'
+          (Get-FileHash 'dist/awep2p-windows-x86_64.exe' -Algorithm SHA256).Hash.ToLower() + '  awep2p-windows-x86_64.exe' | Set-Content 'dist/awep2p-windows-x86_64.exe.sha256'
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-x64
-          path: dist/awep2p-windows-x64.zip*
+          name: windows-x86_64
+          path: dist/awep2p-windows-x86_64.exe*
           if-no-files-found: error
 
   package-linux:
-    name: Linux x64
+    name: Linux x86_64 executable
     needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Build native node
-        run: cargo build --release -p awe-node
-      - name: Package
+      - name: Build Linux x86_64
+        run: cargo build --release -p awe-node --target x86_64-unknown-linux-gnu
+      - name: Validate executable
         run: |
-          mkdir -p dist/awep2p-linux-x64
-          cp target/release/awe-node dist/awep2p-linux-x64/awe-node
-          cp README.md dist/awep2p-linux-x64/README.md
-          tar -C dist -czf dist/awep2p-linux-x64.tar.gz awep2p-linux-x64
-          sha256sum dist/awep2p-linux-x64.tar.gz > dist/awep2p-linux-x64.tar.gz.sha256
+          test -x target/x86_64-unknown-linux-gnu/release/awe-node
+          target/x86_64-unknown-linux-gnu/release/awe-node --help
+      - name: Prepare release files
+        run: |
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-gnu/release/awe-node dist/awep2p-linux-x86_64
+          chmod +x dist/awep2p-linux-x86_64
+          sha256sum dist/awep2p-linux-x86_64 > dist/awep2p-linux-x86_64.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-x64
-          path: dist/awep2p-linux-x64.tar.gz*
+          name: linux-x86_64
+          path: dist/awep2p-linux-x86_64*
           if-no-files-found: error
 
   package-android:
-    name: Android native binaries
+    name: Android installable APK (${{ matrix.name }})
     needs: validate
     runs-on: ubuntu-latest
     strategy:
@@ -94,21 +101,24 @@ jobs:
       matrix:
         include:
           - target: aarch64-linux-android
+            abi: arm64-v8a
             name: android-arm64
           - target: armv7-linux-androideabi
+            abi: armeabi-v7a
             name: android-armv7
           - target: x86_64-linux-android
+            abi: x86_64
             name: android-x86_64
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - name: Set up Android SDK and NDK
         uses: android-actions/setup-android@v3
-      - name: Install Android NDK
+      - name: Install Android build tools and NDK
         shell: bash
         run: |
           sdkmanager --install 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.2.12479018'
@@ -121,77 +131,156 @@ jobs:
         shell: bash
         run: |
           NDK="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          if [ '${{ matrix.target }}' = 'aarch64-linux-android' ]; then
-            echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK/aarch64-linux-android35-clang" >> "$GITHUB_ENV"
-            echo "CC_aarch64_linux_android=$NDK/aarch64-linux-android35-clang" >> "$GITHUB_ENV"
-            echo "AR_aarch64_linux_android=$NDK/llvm-ar" >> "$GITHUB_ENV"
-          elif [ '${{ matrix.target }}' = 'armv7-linux-androideabi' ]; then
-            echo "CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER=$NDK/armv7a-linux-androideabi35-clang" >> "$GITHUB_ENV"
-            echo "CC_armv7_linux_androideabi=$NDK/armv7a-linux-androideabi35-clang" >> "$GITHUB_ENV"
-            echo "AR_armv7_linux_androideabi=$NDK/llvm-ar" >> "$GITHUB_ENV"
-          elif [ '${{ matrix.target }}' = 'x86_64-linux-android' ]; then
-            echo "CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER=$NDK/x86_64-linux-android35-clang" >> "$GITHUB_ENV"
-            echo "CC_x86_64_linux_android=$NDK/x86_64-linux-android35-clang" >> "$GITHUB_ENV"
-            echo "AR_x86_64_linux_android=$NDK/llvm-ar" >> "$GITHUB_ENV"
-          fi
-      - name: Build Android node
+          case '${{ matrix.target }}' in
+            aarch64-linux-android)
+              echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK/aarch64-linux-android35-clang" >> "$GITHUB_ENV"
+              echo "CC_aarch64_linux_android=$NDK/aarch64-linux-android35-clang" >> "$GITHUB_ENV"
+              echo "AR_aarch64_linux_android=$NDK/llvm-ar" >> "$GITHUB_ENV" ;;
+            armv7-linux-androideabi)
+              echo "CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER=$NDK/armv7a-linux-androideabi35-clang" >> "$GITHUB_ENV"
+              echo "CC_armv7_linux_androideabi=$NDK/armv7a-linux-androideabi35-clang" >> "$GITHUB_ENV"
+              echo "AR_armv7_linux_androideabi=$NDK/llvm-ar" >> "$GITHUB_ENV" ;;
+            x86_64-linux-android)
+              echo "CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER=$NDK/x86_64-linux-android35-clang" >> "$GITHUB_ENV"
+              echo "CC_x86_64_linux_android=$NDK/x86_64-linux-android35-clang" >> "$GITHUB_ENV"
+              echo "AR_x86_64_linux_android=$NDK/llvm-ar" >> "$GITHUB_ENV" ;;
+          esac
+      - name: Build Android native executable
         run: cargo build --release -p awe-node --target ${{ matrix.target }}
-      - name: Build APK artifact
+      - name: Build real Android APK
         shell: bash
         run: |
-          mkdir -p dist/awep2p-${{ matrix.name }}-apk
-          cp target/${{ matrix.target }}/release/awe-node dist/awep2p-${{ matrix.name }}-apk/libawe_node.so
-          cp README.md dist/awep2p-${{ matrix.name }}-apk/README.md
-          cd dist && zip -r awep2p-${{ matrix.name }}.apk awep2p-${{ matrix.name }}-apk
-          sha256sum awep2p-${{ matrix.name }}.apk > awep2p-${{ matrix.name }}.apk.sha256
-      - name: Package
-        shell: bash
-        run: |
-          mkdir -p dist/awep2p-${{ matrix.name }}
-          cp target/${{ matrix.target }}/release/awe-node dist/awep2p-${{ matrix.name }}/awe-node
-          cp README.md dist/awep2p-${{ matrix.name }}/README.md
-          chmod +x dist/awep2p-${{ matrix.name }}/awe-node
-          tar -C dist -czf dist/awep2p-${{ matrix.name }}.tar.gz awep2p-${{ matrix.name }}
-          sha256sum dist/awep2p-${{ matrix.name }}.tar.gz > dist/awep2p-${{ matrix.name }}.tar.gz.sha256
+          set -euo pipefail
+          ROOT="$PWD/android-build"
+          mkdir -p "$ROOT/src/com/awep2p" "$ROOT/res/values" "$ROOT/assets" "$ROOT/lib/${{ matrix.abi }}" "$ROOT/build"
+
+          # The Rust program remains unchanged. The generated Android shell is only
+          # a packaging/launch layer created by this workflow.
+          cp "target/${{ matrix.target }}/release/awe-node" "$ROOT/assets/awe-node"
+          chmod 700 "$ROOT/assets/awe-node"
+
+          cat > "$ROOT/AndroidManifest.xml" <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <application android:theme="@style/AppTheme" android:label="AWEp2P" android:allowBackup="false" android:supportsRtl="true">
+              <activity android:name=".MainActivity" android:exported="true">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN" />
+                  <category android:name="android.intent.category.LAUNCHER" />
+                </intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          EOF
+
+          cat > "$ROOT/res/values/styles.xml" <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+            <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+              <item name="android:fontFamily">sans</item>
+              <item name="android:colorAccent">#6750A4</item>
+            </style>
+          </resources>
+          EOF
+
+          cat > "$ROOT/src/com/awep2p/MainActivity.java" <<'EOF'
+          package com.awep2p;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.widget.TextView;
+          import android.view.Gravity;
+          import java.io.*;
+
+          public final class MainActivity extends Activity {
+            private TextView status;
+            @Override public void onCreate(Bundle state) {
+              super.onCreate(state);
+              status = new TextView(this);
+              status.setGravity(Gravity.CENTER);
+              status.setTextSize(18);
+              status.setText("AWEp2P\nStarting…");
+              setContentView(status);
+              new Thread(() -> launchNode()).start();
+            }
+
+            private void launchNode() {
+              try {
+                File node = new File(getFilesDir(), "awe-node");
+                if (!node.exists()) copyAsset("awe-node", node);
+                node.setExecutable(true, true);
+                Process p = new ProcessBuilder(node.getAbsolutePath()).redirectErrorStream(true).start();
+                BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
+                StringBuilder out = new StringBuilder("AWEp2P\n");
+                String line;
+                while ((line = r.readLine()) != null) {
+                  if (out.length() < 12000) out.append(line).append('\n');
+                  final String text = out.toString();
+                  runOnUiThread(() -> status.setText(text));
+                }
+                int code = p.waitFor();
+                final String text = out.append("\nExited: ").append(code).toString();
+                runOnUiThread(() -> status.setText(text));
+              } catch (Exception e) {
+                runOnUiThread(() -> status.setText("AWEp2P failed to start\n" + e));
+              }
+            }
+
+            private void copyAsset(String name, File dest) throws IOException {
+              try (InputStream in = getAssets().open(name); OutputStream out = new FileOutputStream(dest)) {
+                byte[] b = new byte[65536]; int n;
+                while ((n = in.read(b)) != -1) out.write(b, 0, n);
+              }
+            }
+          }
+          EOF
+
+          SDK="$ANDROID_SDK_ROOT"
+          BT="$SDK/build-tools/35.0.0"
+          PLATFORM="$SDK/platforms/android-35/android.jar"
+          mkdir -p "$ROOT/build/classes"
+          javac -source 8 -target 8 -classpath "$PLATFORM" -d "$ROOT/build/classes" "$ROOT/src/com/awep2p/MainActivity.java"
+          "$BT/d8" --min-api 23 --output "$ROOT/build" "$ROOT/build/classes/com/awep2p/MainActivity.class"
+          "$BT/aapt2" compile --dir "$ROOT/res" -o "$ROOT/build/res.zip"
+          "$BT/aapt2" link -o "$ROOT/build/unsigned.apk" --manifest "$ROOT/AndroidManifest.xml" -I "$PLATFORM" --java "$ROOT/build/gen" "$ROOT/build/res.zip"
+          cd "$ROOT"
+          zip -q -j build/unsigned.apk assets/awe-node
+          zip -q -j build/unsigned.apk build/classes.dex
+          "$BT/aapt2" dump packagename build/unsigned.apk >/dev/null
+          "$BT/zipalign" -f -p 4 build/unsigned.apk build/aligned.apk
+          keytool -genkeypair -v -keystore build/awep2p-release.jks -storepass android -keypass android -alias awep2p -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=AWEp2P, O=AWE, C=AM'
+          "$BT/apksigner" sign --ks build/awep2p-release.jks --ks-pass pass:android --key-pass pass:android --out build/awep2p-${{ matrix.name }}.apk build/aligned.apk
+          "$BT/apksigner" verify --verbose build/awep2p-${{ matrix.name }}.apk
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp build/awep2p-${{ matrix.name }}.apk "$GITHUB_WORKSPACE/dist/"
+          sha256sum "$GITHUB_WORKSPACE/dist/awep2p-${{ matrix.name }}.apk" > "$GITHUB_WORKSPACE/dist/awep2p-${{ matrix.name }}.apk.sha256"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          path: |
-            dist/awep2p-${{ matrix.name }}.tar.gz*
-            dist/awep2p-${{ matrix.name }}.apk*
-          if-no-files-found: error
-
-  package-source:
-    name: Source package
-    needs: validate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Package source
-        run: |
-          mkdir -p dist
-          git archive --format=tar.gz --prefix=AWEP2P-${GITHUB_SHA}/ HEAD > dist/awep2p-source.tar.gz
-          sha256sum dist/awep2p-source.tar.gz > dist/awep2p-source.tar.gz.sha256
-      - uses: actions/upload-artifact@v4
-        with:
-          name: source
-          path: dist/awep2p-source.tar.gz*
+          path: dist/awep2p-${{ matrix.name }}.apk*
           if-no-files-found: error
 
   release:
     name: Publish GitHub Release
-    needs: [package-windows, package-linux, package-android, package-source]
+    needs: [package-windows, package-linux, package-android]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: release-assets
-      - name: Flatten release assets
+          merge-multiple: true
+      - name: Verify release assets are real files
+        shell: bash
         run: |
-          mkdir -p release
-          find release-assets -type f -exec cp {} release/ \;
-          ls -lah release
+          set -euo pipefail
+          test -s release-assets/awep2p-windows-x86_64.exe
+          test -s release-assets/awep2p-linux-x86_64
+          test -s release-assets/awep2p-android-arm64.apk
+          test -s release-assets/awep2p-android-armv7.apk
+          test -s release-assets/awep2p-android-x86_64.apk
+          file release-assets/awep2p-windows-x86_64.exe release-assets/awep2p-linux-x86_64 release-assets/*.apk
+          ls -lah release-assets
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
@@ -199,4 +288,4 @@ jobs:
           name: AWEp2P ${{ github.ref_name }}
           generate_release_notes: true
           fail_on_unmatched_files: true
-          files: release/*
+          files: release-assets/*
