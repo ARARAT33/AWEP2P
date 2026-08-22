@@ -9,6 +9,7 @@ name = "awep2p_core"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+libc = { workspace = true, optional = false }
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
