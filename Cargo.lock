@@ -79,6 +79,7 @@ dependencies = [
  "sha2",
  "thiserror",
  "tokio",
+ "winapi",
  "x25519-dalek",
  "zeroize",
 ]

@@ -28,5 +28,8 @@ hkdf.workspace = true
 x25519-dalek.workspace = true
 tokio.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+winapi = { workspace = true }
+
 [dev-dependencies]
 serde_json.workspace = true
