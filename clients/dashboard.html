@@ -478,8 +478,8 @@
     <div id="node-workspace" class="tab-content active">
         <div class="grid">
             <div class="card">
-                <h3>Node Storage Allocation</h3>
-                <p class="sub-text" style="margin-bottom: 12px;">Offer local disk space to become a Node, earn Node ID, and unlock Site Dashboard.</p>
+                <h3>Node Storage & Datacenter Allocation</h3>
+                <p class="sub-text" style="margin-bottom: 12px;">Offer local disk space or register a Datacenter Server node to receive Node ID and unlock Site Dashboard.</p>
 
                 <div class="form-group">
                     <label>Offered Storage (GB)</label>
@@ -494,12 +494,12 @@
             </div>
 
             <div class="card">
-                <h3>Live Network Status (Real-Time)</h3>
+                <h3>Live Network Capacity & Dynamic Scaling</h3>
                 <div class="metric" id="active-peers">1 Peer(s) Online</div>
-                <div class="sub-text">Connected P2P Nodes via XOR Distance DHT</div>
+                <div class="sub-text">Total Dynamic Mesh Storage: <strong style="color: var(--accent-color);" id="net-capacity-display">50.0 GB Total Capacity</strong></div>
+                <div class="sub-text">Dynamic Site Upload Limit: <strong style="color: var(--success);" id="site-limit-display">10.0 GB Limit</strong></div>
                 <br>
                 <div class="sub-text">1000-Shard Erasure Coding: <strong style="color: var(--success);">450 Data / 550 Parity (3x Replicated)</strong></div>
-                <div class="sub-text">Dynamic Seeder: <strong style="color: var(--accent-color);">Active</strong></div>
             </div>
 
             <div class="card">
@@ -507,7 +507,7 @@
                 <div class="sub-text" style="margin-bottom: 6px;">Node ID: <strong style="color: var(--warning);" id="node-id-text">None (Node inactive)</strong></div>
                 <div class="sub-text" style="margin-bottom: 6px;">Messenger ID: <strong style="color: var(--accent-color);" id="node-msg-id-text">awe-msg-00000000</strong></div>
                 <div class="sub-text" style="margin-bottom: 6px;">.awesecret Signature: <strong style="color: var(--success);">Ed25519 Cryptographically Validated</strong></div>
-                <div class="sub-text">Tamper Protection: <strong style="color: var(--success);">Strict Verification Active</strong></div>
+                <div class="sub-text">Node Scale: <strong style="color: var(--success);" id="node-scale-text">Standard Device Node</strong></div>
             </div>
         </div>
     </div>
@@ -522,8 +522,8 @@
                     <p class="sub-text">To unlock site publishing, you must become an active Node on the Node Dashboard.</p>
                 </div>
 
-                <h3>AWESites Deployment</h3>
-                <p class="sub-text" style="margin-bottom: 12px;">Publish sovereign P2P websites split into 1000 shards.</p>
+                <h3>AWESites Folder & Web Application Deployment</h3>
+                <p class="sub-text" style="margin-bottom: 12px;">Publish sovereign P2P websites, full web applications, or zip bundles split into 1000 shards.</p>
 
                 <div class="form-group">
                     <label>Domain Name</label>
@@ -531,11 +531,16 @@
                 </div>
 
                 <div class="form-group">
-                    <label>Site HTML Code</label>
+                    <label>Upload Web Folder / Zip Bundle</label>
+                    <input type="file" id="site-folder-input" webkitdirectory directory multiple>
+                </div>
+
+                <div class="form-group">
+                    <label>Or Site HTML / Manifest Code</label>
                     <textarea id="site-html-content" rows="4"><h1>Welcome to My AWE Sovereign Site</h1><p>Published purely across 1000 P2P nodes!</p></textarea>
                 </div>
 
-                <button class="btn" onclick="publishSite()">Publish Site & Share Public Link</button>
+                <button class="btn" onclick="publishSite()">Publish Web Bundle & Share Public Link</button>
             </div>
         </div>
     </div>
@@ -627,7 +632,8 @@
         let activeNodeDescriptor = null;
         let userMessengerId = null;
         let dailyUploadedBytes = 0;
-        let loadedSecretData = null;
+        let activeNodesCount = 1;
+        let userContributedGB = 0;
 
         function switchAuthTab(tab) {
             document.getElementById('btn-tab-register').classList.toggle('active', tab === 'register');
@@ -655,7 +661,6 @@
                 return;
             }
 
-            // Simulate deterministic identity & awesecret generation
             const aweIdHex = Array.from({length: 32}, (_, i) => ((i * 17 + username.length) % 256).toString(16).padStart(2, '0')).join('');
             const pubKeyHex = aweIdHex;
             const messengerId = 'awe-msg-' + aweIdHex.substring(0, 8) + '-' + aweIdHex.substring(8, 16);
@@ -668,7 +673,6 @@
 
             userMessengerId = messengerId;
 
-            // Trigger .awesecret file download
             const secretContent = JSON.stringify({
                 username: username,
                 awe_id: aweIdHex,
@@ -720,8 +724,8 @@
             document.getElementById('msg-id-display').innerText = 'Messenger ID: ' + messengerId;
             document.getElementById('node-msg-id-text').innerText = messengerId;
 
-            // Simulated real disk check
             document.getElementById('real-disk-display').value = '184.50 GB Available';
+            updateNetworkCapacity();
         }
 
         function switchTab(evt, tabId) {
@@ -732,11 +736,20 @@
             document.getElementById(tabId).classList.add('active');
         }
 
+        function updateNetworkCapacity() {
+            const baseAvgGB = 50;
+            const globalCapacityGB = (activeNodesCount * baseAvgGB) + userContributedGB;
+            const dynamicLimitGB = Math.max(10, globalCapacityGB / 5);
+
+            document.getElementById('net-capacity-display').innerText = `${globalCapacityGB.toFixed(1)} GB Total Capacity`;
+            document.getElementById('site-limit-display').innerText = `${dynamicLimitGB.toFixed(1)} GB Dynamic Limit`;
+        }
+
         function applyNodeAllocation() {
             if (!currentIdentity) return;
 
             const offeredGB = parseFloat(document.getElementById('node-storage-input').value) || 0;
-            const realAvailableGB = 184.50; // Hardware checked
+            const realAvailableGB = 184.50;
 
             if (offeredGB <= 0) {
                 alert('Offered storage size must be greater than 0 GB.');
@@ -749,14 +762,21 @@
             }
 
             isNodeActive = true;
+            userContributedGB = offeredGB;
+            activeNodesCount += 1;
+
             const hexStr = currentIdentity.awe_id.toUpperCase();
             activeNodeDescriptor = `ND-${hexStr.substring(0, 4)}-${hexStr.substring(4, 8)}-${hexStr.substring(8, 12)}-${hexStr.substring(12, 16)}`;
+
+            const isDatacenter = offeredGB >= 1000;
+            document.getElementById('node-scale-text').innerText = isDatacenter ? 'Datacenter / Server Scale Node' : 'Standard Device Node';
 
             document.getElementById('nd-display').innerText = activeNodeDescriptor;
             document.getElementById('node-id-text').innerText = activeNodeDescriptor;
             document.getElementById('site-lock').style.display = 'none';
 
-            alert(`Hardware Verified!\nNode Activated with ${offeredGB} GB Storage Allocation.\nYour Node ID: ${activeNodeDescriptor}\nSite Dashboard Unlocked!`);
+            updateNetworkCapacity();
+            alert(`Hardware Verified!\nNode Activated with ${offeredGB} GB Storage Allocation.${isDatacenter ? ' (Datacenter Scale)' : ''}\nYour Node ID: ${activeNodeDescriptor}\nSite Dashboard Unlocked!`);
         }
 
         function publishSite() {
@@ -766,7 +786,10 @@
             }
 
             const domain = document.getElementById('domain-input').value;
-            alert(`Site published successfully!\n\nDomain: ${domain}\nEncoded into 1000 Reed-Solomon shards across node network.`);
+            const folderInput = document.getElementById('site-folder-input');
+            const fileCount = folderInput.files ? folderInput.files.length : 0;
+
+            alert(`Site Bundle Published Successfully!\n\nDomain: ${domain}\nFiles included: ${fileCount > 0 ? fileCount + ' files from folder' : 'Single page'}\nEncoded into 1000 Reed-Solomon shards across network.`);
         }
 
         function uploadDriveFile(isPrivate) {

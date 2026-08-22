@@ -14,6 +14,38 @@ pub struct NodeInfo {
     pub is_active_node: bool,
     pub node_descriptor: Option<String>,
     pub site_dashboard_unlocked: bool,
+    pub is_datacenter_scale: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NetworkCapacityMetrics {
+    pub total_active_nodes: u64,
+    pub user_contributed_bytes: u64,
+    pub global_network_bytes: u64,
+    pub dynamic_site_storage_limit_bytes: u64,
+}
+
+impl NetworkCapacityMetrics {
+    pub fn calculate(active_nodes_count: u64, user_contributed_bytes: u64) -> Self {
+        // Base dynamic network capacity calculation:
+        // Each node added increases the total network capacity dynamically.
+        let base_node_avg = 50 * 1024 * 1024 * 1024u64; // 50 GB average per peer node
+        let global_network_bytes = active_nodes_count
+            .max(1)
+            .saturating_mul(base_node_avg)
+            .saturating_add(user_contributed_bytes);
+
+        // Dynamic site storage limit scales with network capacity (min 10 GB, max unbounded)
+        let dynamic_site_storage_limit_bytes =
+            (global_network_bytes / 5).max(10 * 1024 * 1024 * 1024);
+
+        Self {
+            total_active_nodes: active_nodes_count.max(1),
+            user_contributed_bytes,
+            global_network_bytes,
+            dynamic_site_storage_limit_bytes,
+        }
+    }
 }
 
 pub fn get_available_disk_space(path: &Path) -> io::Result<u64> {
@@ -103,6 +135,7 @@ pub fn configure_node_storage(
     }
 
     let node_desc = format_node_descriptor(identity.public.awe_id.as_bytes());
+    let is_datacenter_scale = offered_bytes >= 1000 * 1024 * 1024 * 1024; // >= 1 TB Datacenter / Server node
 
     Ok(NodeInfo {
         username: identity.public.username.as_str().to_string(),
@@ -112,6 +145,7 @@ pub fn configure_node_storage(
         is_active_node: true,
         node_descriptor: Some(node_desc),
         site_dashboard_unlocked: true,
+        is_datacenter_scale,
     })
 }
 
@@ -144,8 +178,22 @@ mod tests {
         let excessive_offer = space.saturating_add(1000 * 1024 * 1024 * 1024);
         let err = configure_node_storage(&identity, &temp_dir, excessive_offer);
         assert!(err.is_err());
-        assert!(err.unwrap_err().contains("exceeds actual available disk space"));
+        assert!(err
+            .unwrap_err()
+            .contains("exceeds actual available disk space"));
 
         let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_network_capacity_scaling() {
+        let base_metrics = NetworkCapacityMetrics::calculate(1, 10 * 1024 * 1024 * 1024);
+        let scaled_metrics = NetworkCapacityMetrics::calculate(100, 1000 * 1024 * 1024 * 1024);
+
+        assert!(scaled_metrics.global_network_bytes > base_metrics.global_network_bytes);
+        assert!(
+            scaled_metrics.dynamic_site_storage_limit_bytes
+                > base_metrics.dynamic_site_storage_limit_bytes
+        );
     }
 }

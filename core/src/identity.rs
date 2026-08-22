@@ -161,7 +161,9 @@ impl AweSecret {
         );
 
         if !Identity::verify(&pk, msg.as_bytes(), &sig) {
-            return Err("Tampered .awesecret: Cryptographic signature verification failed".to_string());
+            return Err(
+                "Tampered .awesecret: Cryptographic signature verification failed".to_string(),
+            );
         }
 
         Ok(())
