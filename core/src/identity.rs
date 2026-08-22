@@ -93,6 +93,46 @@ impl Identity {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AweSecret {
+    pub username: String,
+    pub awe_id: String,
+    pub secret_key: String,
+}
+
+impl AweSecret {
+    pub fn generate(identity: &Identity) -> Self {
+        Self {
+            username: identity.public.username.as_str().to_string(),
+            awe_id: identity.public.awe_id.to_hex(),
+            secret_key: hex::encode(identity.export_secret()),
+        }
+    }
+
+    pub fn to_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
+        serde_json::to_vec_pretty(self)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
+        serde_json::from_slice(bytes).map_err(|e| format!("Invalid .awesecret file: {e}"))
+    }
+
+    pub fn authenticate(&self) -> Result<Identity, String> {
+        let username = Username::new(&self.username).map_err(|e| e.to_string())?;
+        let secret_bytes = hex::decode(&self.secret_key).map_err(|e| e.to_string())?;
+        if secret_bytes.len() != 32 {
+            return Err("Invalid secret key length in .awesecret".to_string());
+        }
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&secret_bytes);
+        let identity = Identity::from_secret(username, key);
+        if identity.public.awe_id.to_hex() != self.awe_id {
+            return Err("Mismatching AWE-ID in .awesecret".to_string());
+        }
+        Ok(identity)
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum VaultError {
     #[error("invalid vault format")]
@@ -202,6 +242,15 @@ mod tests {
         let i = Identity::generate(Username::new("ararat").unwrap());
         let v = LocalVault::seal(&i, "secret").unwrap();
         assert!(LocalVault::open(&v, i.public.username.clone(), "wrong").is_err());
+    }
+    #[test]
+    fn awesecret_generate_and_auth() {
+        let i = Identity::generate(Username::new("ararat").unwrap());
+        let secret = AweSecret::generate(&i);
+        let bytes = secret.to_bytes().unwrap();
+        let loaded = AweSecret::from_bytes(&bytes).unwrap();
+        let auth_id = loaded.authenticate().unwrap();
+        assert_eq!(i.public.awe_id, auth_id.public.awe_id);
     }
     #[test]
     fn random_is_nonconstant() {

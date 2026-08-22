@@ -181,7 +181,8 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.awep2p">
             <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="35" />
-            <application android:theme="@style/AppTheme" android:label="AWEp2P" android:allowBackup="false" android:supportsRtl="true" android:extractNativeLibs="true">
+            <uses-permission android:name="android.permission.INTERNET" />
+            <application android:theme="@style/AppTheme" android:label="AWEp2P" android:allowBackup="false" android:supportsRtl="true" android:extractNativeLibs="true" android:usesCleartextTraffic="true">
               <activity android:name=".MainActivity" android:exported="true">
                 <intent-filter>
                   <action android:name="android.intent.action.MAIN" />
@@ -206,40 +207,34 @@ jobs:
           package com.awep2p;
           import android.app.Activity;
           import android.os.Bundle;
-          import android.widget.TextView;
-          import android.view.Gravity;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.webkit.WebSettings;
           import java.io.*;
 
           public final class MainActivity extends Activity {
-            private TextView status;
+            private WebView webView;
             @Override public void onCreate(Bundle state) {
               super.onCreate(state);
-              status = new TextView(this);
-              status.setGravity(Gravity.CENTER);
-              status.setTextSize(18);
-              status.setText("AWEp2P\nStarting…");
-              setContentView(status);
-              new Thread(new Runnable() { public void run() { launchNode(); } }).start();
+              webView = new WebView(this);
+              WebSettings settings = webView.getSettings();
+              settings.setJavaScriptEnabled(true);
+              settings.setDomStorageEnabled(true);
+              webView.setWebViewClient(new WebViewClient());
+              setContentView(webView);
+
+              new Thread(new Runnable() { public void run() { launchNodeAndLoadGUI(); } }).start();
             }
-            private void launchNode() {
+            private void launchNodeAndLoadGUI() {
               try {
                 File node = new File(getApplicationInfo().nativeLibraryDir, "libawe_node.so");
                 if (!node.exists()) throw new IOException("Native executable was not extracted: " + node);
-                Process p = new ProcessBuilder(node.getAbsolutePath()).redirectErrorStream(true).start();
-                BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
-                StringBuilder out = new StringBuilder("AWEp2P\n");
-                String line;
-                while ((line = r.readLine()) != null) {
-                  if (out.length() < 12000) out.append(line).append('\n');
-                  final String text = out.toString();
-                  runOnUiThread(new Runnable() { public void run() { status.setText(text); } });
-                }
-                int code = p.waitFor();
-                final String text = out.append("\nExited: ").append(code).toString();
-                runOnUiThread(new Runnable() { public void run() { status.setText(text); } });
+                Process p = new ProcessBuilder(node.getAbsolutePath(), "gui", "41000").redirectErrorStream(true).start();
+                Thread.sleep(1500);
+                runOnUiThread(new Runnable() { public void run() { webView.loadUrl("http://127.0.0.1:41000"); } });
               } catch (Exception e) {
-                final String text = "AWEp2P failed to start\n" + e;
-                runOnUiThread(new Runnable() { public void run() { status.setText(text); } });
+                final String text = "<html><body style='background:#0b0f19;color:#fff;padding:20px;'><h2>AWEp2P GUI Failed to Start</h2><p>" + e + "</p></body></html>";
+                runOnUiThread(new Runnable() { public void run() { webView.loadData(text, "text/html", "UTF-8"); } });
               }
             }
           }

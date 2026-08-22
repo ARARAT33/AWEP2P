@@ -53,6 +53,17 @@ pub struct PeerRecord {
     pub last_seen_unix: u64,
 }
 
+pub fn format_node_descriptor(awe_id: &[u8; 32]) -> String {
+    let hex_str = hex::encode(awe_id).to_uppercase();
+    format!(
+        "ND-{}-{}-{}-{}",
+        &hex_str[0..4],
+        &hex_str[4..8],
+        &hex_str[8..12],
+        &hex_str[12..16]
+    )
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 enum Control {
     Hello {
@@ -343,6 +354,9 @@ impl Node {
             routing: Arc::new(RwLock::new(RoutingTable::default())),
             peers: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+    pub fn node_descriptor(&self) -> String {
+        format_node_descriptor(self.identity.public.awe_id.as_bytes())
     }
     async fn handle(
         stream: TcpStream,
