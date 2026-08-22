@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="hy">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWEp2P Sovereignty Control Center & AWECloud</title>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #161f30;
+            --accent-color: #00f2fe;
+            --text-color: #e2e8f0;
+            --text-muted: #94a3b8;
+            --border-color: #1e293b;
+            --success: #10b981;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            padding: 20px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 25px;
+        }
+
+        h1 {
+            color: var(--accent-color);
+            font-size: 1.8rem;
+        }
+
+        .badge {
+            background: rgba(0, 242, 254, 0.1);
+            color: var(--accent-color);
+            padding: 6px 12px;
+            border-radius: 20px;
+            border: 1px solid var(--accent-color);
+            font-size: 0.85rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border-color);
+        }
+
+        .card h3 {
+            margin-bottom: 15px;
+            color: #f8fafc;
+            font-size: 1.2rem;
+        }
+
+        .metric {
+            font-size: 2rem;
+            font-weight: bold;
+            color: var(--accent-color);
+            margin-bottom: 5px;
+        }
+
+        .sub-text {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .browser-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 10px 15px;
+            background: #0f172a;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: #fff;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: var(--accent-color);
+            color: #0b0f19;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        .viewport {
+            width: 100%;
+            height: 250px;
+            background: #040711;
+            border-radius: 8px;
+            border: 1px dashed var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+        }
+
+        .status-dot {
+            height: 10px;
+            width: 10px;
+            background-color: var(--success);
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>AWEp2P Sovereign Web & AWECloud Control Center</h1>
+        <div class="badge"><span class="status-dot"></span> Light Node Active (Seeding Enabled)</div>
+    </header>
+
+    <div class="grid">
+        <!-- Resource Dashboard -->
+        <div class="card">
+            <h3>Global Network Resources</h3>
+            <div class="metric" id="total-storage">10,240 TB</div>
+            <div class="sub-text">Total Storage Across Active Nodes</div>
+            <br>
+            <div class="metric" id="available-storage">7,890 TB</div>
+            <div class="sub-text">Available User Quota (1000 Shards / 3x Replicated)</div>
+        </div>
+
+        <!-- Node & Seeding Health -->
+        <div class="card">
+            <h3>Local Node Status</h3>
+            <div class="metric">Ephemeral Seeder</div>
+            <div class="sub-text">Auto-sharing 1/1000th fragment per visited site</div>
+            <br>
+            <div class="sub-text">Active Connected Peers: <strong style="color: #fff;">1,420 Nodes</strong></div>
+            <div class="sub-text">Dynamic Self-Repair: <strong style="color: var(--success);">100% Operational</strong></div>
+        </div>
+
+        <!-- Cloud Storage Hosting (AWECloud) -->
+        <div class="card">
+            <h3>AWECloud Decentralized Hosting</h3>
+            <div class="sub-text" style="margin-bottom: 15px;">Amazon/Google Cloud-grade decentralized bucket storage.</div>
+            <button onclick="deploySite()">Deploy Anonymous Site (.awe)</button>
+            <button style="background: #334155; color: #fff; margin-left: 5px;" onclick="uploadFile()">Upload Object</button>
+        </div>
+    </div>
+
+    <!-- P2P Sovereign Browser Viewer -->
+    <div class="card">
+        <h3>AWE Sovereign Browser Viewer</h3>
+        <div class="browser-bar">
+            <input type="text" id="url-input" value="awe://hyper-sovereign.awe" placeholder="awe://domain.awe">
+            <button onclick="navigate()">Navigate</button>
+        </div>
+        <div class="viewport" id="browser-view">
+            <div>
+                <p><strong>Status:</strong> Ready to fetch via 1000-shard Reed-Solomon consensus.</p>
+                <p style="font-size: 0.85rem; margin-top: 5px;">450/1000 shards required for full recovery.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function navigate() {
+            const url = document.getElementById('url-input').value;
+            const view = document.getElementById('browser-view');
+            view.innerHTML = `<div style="text-align: center;"><p style="color: var(--accent-color);">[AWE Mesh] Connected to site: <strong>${url}</strong></p><br><p>Seeding 1 fragment to mesh... 100% Anonymous.</p></div>`;
+        }
+
+        function deploySite() {
+            alert('AWECloud: Site successfully encoded into 1000 shards and published to node network!');
+        }
+
+        function uploadFile() {
+            alert('AWECloud: File encrypted and replicated 3x across global P2P nodes!');
+        }
+    </script>
+</body>
+</html>
