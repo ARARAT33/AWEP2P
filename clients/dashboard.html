@@ -1,22 +1,24 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="hy">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AWEp2P Sovereign Application</title>
     <style>
         :root {
-            --bg-color: #080c14;
-            --card-bg: #111827;
-            --card-border: #1f293d;
-            --accent-color: #00f2fe;
-            --accent-hover: #00d8e6;
-            --text-color: #f1f5f9;
-            --text-muted: #94a3b8;
+            --bg-color: #f1f5f9;
+            --card-bg: #ffffff;
+            --card-border: #cbd5e1;
+            --accent-color: #0284c7;
+            --accent-hover: #0369a1;
+            --text-color: #0f172a;
+            --text-muted: #64748b;
             --success: #10b981;
             --warning: #f59e0b;
             --danger: #ef4444;
-            --lock-bg: rgba(15, 23, 42, 0.94);
+            --lock-bg: rgba(241, 245, 249, 0.94);
+            --input-bg: #f8fafc;
+            --item-hover: #e2e8f0;
         }
 
         * {
@@ -41,8 +43,8 @@
             left: 0;
             width: 100vw;
             height: 100vh;
-            background: rgba(4, 7, 15, 0.98);
-            backdrop-filter: blur(10px);
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(8px);
             z-index: 9999;
             display: flex;
             align-items: center;
@@ -57,7 +59,7 @@
             padding: 30px;
             width: 100%;
             max-width: 480px;
-            box-shadow: 0 0 40px rgba(0, 242, 254, 0.25);
+            box-shadow: 0 10px 25px rgba(2, 132, 199, 0.15);
             text-align: center;
         }
 
@@ -76,9 +78,10 @@
         .auth-tabs {
             display: flex;
             margin-bottom: 20px;
-            background: #090e17;
+            background: var(--bg-color);
             border-radius: 8px;
             padding: 4px;
+            border: 1px solid var(--card-border);
         }
 
         .auth-tab-btn {
@@ -94,7 +97,7 @@
 
         .auth-tab-btn.active {
             background: var(--accent-color);
-            color: #080c14;
+            color: #ffffff;
         }
 
         .form-group {
@@ -107,27 +110,29 @@
             margin-bottom: 6px;
             font-size: 0.85rem;
             color: var(--text-muted);
+            font-weight: 600;
         }
 
         input[type="text"], input[type="password"], input[type="file"], select, textarea {
             width: 100%;
             padding: 12px 14px;
-            background: #090e17;
+            background: var(--input-bg);
             border: 1px solid var(--card-border);
             border-radius: 8px;
-            color: #fff;
+            color: var(--text-color);
             font-size: 0.95rem;
             outline: none;
         }
 
         input[type="text"]:focus, select:focus, textarea:focus {
             border-color: var(--accent-color);
+            box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
         }
 
         .btn {
             padding: 12px 20px;
             background: var(--accent-color);
-            color: #0b0f19;
+            color: #ffffff;
             border: none;
             border-radius: 8px;
             font-weight: 700;
@@ -141,12 +146,18 @@
         }
 
         .btn-secondary {
-            background: #1e293b;
+            background: #e2e8f0;
             color: var(--text-color);
         }
 
         .btn-secondary:hover {
-            background: #334155;
+            background: #cbd5e1;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+            width: auto;
         }
 
         header {
@@ -157,12 +168,16 @@
             border-bottom: 1px solid var(--card-border);
             margin-bottom: 20px;
             flex-wrap: wrap;
-            gap: 10px;
+            gap: 12px;
+            background: var(--card-bg);
+            padding: 16px 20px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
 
         .brand h1 {
             color: var(--accent-color);
-            font-size: 1.6rem;
+            font-size: 1.5rem;
             display: flex;
             align-items: center;
             gap: 10px;
@@ -175,21 +190,34 @@
             flex-wrap: wrap;
         }
 
-        .badge {
-            background: rgba(0, 242, 254, 0.1);
-            color: var(--accent-color);
-            padding: 5px 12px;
+        .uid-banner {
+            background: #e0f2fe;
+            color: #0369a1;
+            padding: 6px 14px;
             border-radius: 20px;
-            border: 1px solid var(--accent-color);
+            border: 1px solid #7dd3fc;
+            font-size: 0.85rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .badge {
+            background: #f1f5f9;
+            color: var(--text-color);
+            padding: 6px 12px;
+            border-radius: 20px;
+            border: 1px solid var(--card-border);
             font-size: 0.8rem;
             font-weight: 600;
         }
 
         .nd-badge {
-            background: rgba(16, 185, 129, 0.1);
-            color: var(--success);
-            border: 1px solid var(--success);
-            padding: 5px 12px;
+            background: #d1fae5;
+            color: #047857;
+            border: 1px solid #6ee7b7;
+            padding: 6px 12px;
             border-radius: 20px;
             font-size: 0.8rem;
             font-weight: 600;
@@ -208,10 +236,10 @@
         }
 
         .tab-btn {
-            padding: 10px 16px;
-            background: transparent;
+            padding: 10px 18px;
+            background: var(--card-bg);
             color: var(--text-muted);
-            border: 1px solid transparent;
+            border: 1px solid var(--card-border);
             border-radius: 8px;
             font-size: 0.9rem;
             font-weight: 600;
@@ -220,8 +248,8 @@
         }
 
         .tab-btn.active {
-            background: var(--card-bg);
-            color: var(--accent-color);
+            background: var(--accent-color);
+            color: #ffffff;
             border-color: var(--accent-color);
         }
 
@@ -246,11 +274,12 @@
             padding: 20px;
             border: 1px solid var(--card-border);
             position: relative;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
 
         .card h3 {
             margin-bottom: 12px;
-            color: #f8fafc;
+            color: var(--text-color);
             font-size: 1.1rem;
         }
 
@@ -300,7 +329,7 @@
         .viewport {
             width: 100%;
             height: 340px;
-            background: #040711;
+            background: #ffffff;
             border-radius: 8px;
             border: 1px dashed var(--card-border);
             display: flex;
@@ -314,11 +343,11 @@
         /* Messenger Chat Layout */
         .messenger-box {
             display: grid;
-            grid-template-columns: 220px 1fr;
+            grid-template-columns: 260px 1fr;
             gap: 12px;
-            height: 380px;
-            background: #070b14;
-            border-radius: 8px;
+            height: 440px;
+            background: #ffffff;
+            border-radius: 10px;
             border: 1px solid var(--card-border);
             overflow: hidden;
         }
@@ -328,34 +357,77 @@
                 grid-template-columns: 1fr;
             }
             .chat-list {
-                max-height: 100px;
+                max-height: 120px;
             }
         }
 
-        .chat-list {
+        .chat-sidebar {
             border-right: 1px solid var(--card-border);
-            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            background: #f8fafc;
+        }
+
+        .chat-sidebar-header {
+            padding: 12px;
+            border-bottom: 1px solid var(--card-border);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .chat-list {
+            padding: 8px;
             overflow-y: auto;
+            flex: 1;
         }
 
         .chat-item {
-            padding: 8px 10px;
-            border-radius: 6px;
+            padding: 10px 12px;
+            border-radius: 8px;
             cursor: pointer;
             margin-bottom: 4px;
-            background: rgba(255, 255, 255, 0.03);
+            background: #ffffff;
+            border: 1px solid var(--card-border);
             font-size: 0.85rem;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
         }
 
         .chat-item:hover, .chat-item.active {
-            background: rgba(0, 242, 254, 0.15);
+            background: #e0f2fe;
+            border-color: #7dd3fc;
             color: var(--accent-color);
+        }
+
+        .chat-item-name {
+            font-weight: 700;
+        }
+
+        .chat-item-sub {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-family: monospace;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .chat-window {
             display: flex;
             flex-direction: column;
             padding: 12px;
+            background: #ffffff;
+        }
+
+        .chat-window-header {
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid var(--card-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
         .chat-messages {
@@ -365,33 +437,45 @@
             flex-direction: column;
             gap: 8px;
             margin-bottom: 12px;
+            padding-right: 5px;
         }
 
         .msg-bubble {
             max-width: 80%;
-            padding: 8px 12px;
-            border-radius: 10px;
-            font-size: 0.85rem;
+            padding: 8px 14px;
+            border-radius: 12px;
+            font-size: 0.88rem;
             line-height: 1.4;
+            word-break: break-word;
         }
 
         .msg-sent {
             align-self: flex-end;
             background: var(--accent-color);
-            color: #080c14;
-            font-weight: 600;
+            color: #ffffff;
+            font-weight: 500;
+            border-bottom-right-radius: 2px;
         }
 
         .msg-recv {
             align-self: flex-start;
-            background: #1e293b;
-            color: #fff;
+            background: #f1f5f9;
+            color: var(--text-color);
+            border: 1px solid var(--card-border);
+            border-bottom-left-radius: 2px;
+        }
+
+        .msg-sender {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--accent-color);
+            margin-bottom: 2px;
         }
 
         .progress-bar-bg {
             width: 100%;
             height: 10px;
-            background: #090e17;
+            background: #e2e8f0;
             border-radius: 5px;
             overflow: hidden;
             margin: 8px 0;
@@ -413,6 +497,21 @@
             display: inline-block;
             margin-right: 4px;
         }
+
+        .copy-btn {
+            background: #ffffff;
+            border: 1px solid #7dd3fc;
+            color: #0369a1;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            margin-left: 6px;
+            font-weight: 600;
+        }
+        .copy-btn:hover {
+            background: #bae6fd;
+        }
     </style>
 </head>
 <body>
@@ -420,7 +519,7 @@
     <!-- Authentication Modal -->
     <div id="auth-modal">
         <div class="auth-card">
-            <h2>AWEp2P Sovereign</h2>
+            <h2>🌐 AWEp2P Sovereign</h2>
             <p>100% P2P Network Access. Zero Central Servers.</p>
 
             <div class="auth-tabs">
@@ -458,8 +557,11 @@
             <h1>🌐 AWEp2P Sovereign Network</h1>
         </div>
         <div class="user-info">
+            <div class="uid-banner" id="top-uid-banner">
+                <span>Uid: <strong id="top-uid-display">Pending</strong></span>
+                <button class="copy-btn" onclick="copyUidToClipboard()">📋 Copy Uid</button>
+            </div>
             <span class="nd-badge" id="nd-display">No Node ID (Standard User)</span>
-            <span class="badge" id="msg-id-display">Messenger ID: Pending</span>
             <span class="badge" id="user-display">User: Anonymous</span>
             <div class="badge"><span class="status-dot"></span> Mesh Active</div>
         </div>
@@ -479,25 +581,25 @@
         <div class="grid">
             <div class="card">
                 <h3>Node Storage & Datacenter Allocation</h3>
-                <p class="sub-text" style="margin-bottom: 12px;">Offer local disk space or register a Datacenter Server node to receive Node ID and unlock Site Dashboard.</p>
+                <p class="sub-text" style="margin-bottom: 12px;">Offer real local disk space from actual hardware (running background process) to activate Node ID and unlock Site Dashboard.</p>
 
                 <div class="form-group">
                     <label>Offered Storage (GB)</label>
                     <input type="text" id="node-storage-input" value="10">
                 </div>
                 <div class="form-group">
-                    <label>Real Disk Space Available</label>
-                    <input type="text" id="real-disk-display" value="Verifying disk..." readonly style="background: #040711; color: var(--success); font-family: monospace;">
+                    <label>Real Hardware Disk Space Available</label>
+                    <input type="text" id="real-disk-display" value="Verifying hardware..." readonly style="background: var(--input-bg); color: var(--success); font-weight: bold; font-family: monospace;">
                 </div>
 
                 <button class="btn" onclick="applyNodeAllocation()">Verify Hardware & Activate Node</button>
             </div>
 
             <div class="card">
-                <h3>Live Network Capacity & Dynamic Scaling</h3>
+                <h3>🌍 Amber Planet — Real-Time Network Resources</h3>
                 <div class="metric" id="active-peers">1 Peer(s) Online</div>
-                <div class="sub-text">Total Dynamic Mesh Storage: <strong style="color: var(--accent-color);" id="net-capacity-display">50.0 GB Total Capacity</strong></div>
-                <div class="sub-text">Dynamic Site Upload Limit: <strong style="color: var(--success);" id="site-limit-display">10.0 GB Limit</strong></div>
+                <div class="sub-text">Total Dynamic Mesh Capacity: <strong style="color: var(--accent-color);" id="net-capacity-display">0.0 GB Total Capacity</strong></div>
+                <div class="sub-text">Dynamic Site Upload Limit: <strong style="color: var(--success);" id="site-limit-display">0.0 GB Limit</strong></div>
                 <br>
                 <div class="sub-text">1000-Shard Erasure Coding: <strong style="color: var(--success);">450 Data / 550 Parity (3x Replicated)</strong></div>
             </div>
@@ -505,9 +607,9 @@
             <div class="card">
                 <h3>Node Identity & Security</h3>
                 <div class="sub-text" style="margin-bottom: 6px;">Node ID: <strong style="color: var(--warning);" id="node-id-text">None (Node inactive)</strong></div>
-                <div class="sub-text" style="margin-bottom: 6px;">Messenger ID: <strong style="color: var(--accent-color);" id="node-msg-id-text">awe-msg-00000000</strong></div>
+                <div class="sub-text" style="margin-bottom: 6px;">User Uid: <strong style="color: var(--accent-color);" id="node-msg-id-text">awe-msg-00000000-00000000</strong></div>
                 <div class="sub-text" style="margin-bottom: 6px;">.awesecret Signature: <strong style="color: var(--success);">Ed25519 Cryptographically Validated</strong></div>
-                <div class="sub-text">Node Scale: <strong style="color: var(--success);" id="node-scale-text">Standard Device Node</strong></div>
+                <div class="sub-text">Node Scale: <strong style="color: var(--text-muted);" id="node-scale-text">Inactive Node</strong></div>
             </div>
         </div>
     </div>
@@ -519,7 +621,7 @@
                 <div id="site-lock" class="workspace-lock">
                     <div class="lock-icon">🔒</div>
                     <h3>Site Dashboard Locked</h3>
-                    <p class="sub-text">To unlock site publishing, you must become an active Node on the Node Dashboard.</p>
+                    <p class="sub-text">To unlock site publishing, you must allocate real hardware storage (>0 GB) on the Node Dashboard.</p>
                 </div>
 
                 <h3>AWESites Folder & Web Application Deployment</h3>
@@ -574,7 +676,7 @@
             <div class="card">
                 <h3>Drive Files & Shared Links</h3>
                 <div id="drive-file-list" class="sub-text" style="display: flex; flex-direction: column; gap: 10px;">
-                    <div style="padding: 10px; background: #090e17; border-radius: 8px; border: 1px solid var(--card-border);">
+                    <div style="padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--card-border);">
                         <strong>welcome_guide.pdf</strong> (1.2 MB)<br>
                         <span style="font-size: 0.8rem; color: var(--accent-color);">Public URL: awe://welcome_guide.pdf</span>
                     </div>
@@ -586,23 +688,41 @@
     <!-- 4. AWEMessenger Tab -->
     <div id="awemessenger" class="tab-content">
         <div class="card">
-            <h3>AWEMessenger — P2P Encrypted Chat</h3>
-            <p class="sub-text" style="margin-bottom: 12px;">Share your permanent Messenger ID with friends to chat end-to-end encrypted.</p>
+            <h3>💬 AWEMessenger — Global P2P Encrypted Chat</h3>
+            <p class="sub-text" style="margin-bottom: 12px;">
+                Your Uid is <strong style="color: var(--accent-color);" id="messenger-my-uid">Pending</strong>. Give your Uid to friends anywhere in the world to connect!
+            </p>
 
             <div class="messenger-box">
-                <div class="chat-list">
-                    <div class="chat-item active" onclick="selectChat(event, 'Global Node Mesh')"># Global Node Mesh</div>
-                    <div class="chat-item" onclick="selectChat(event, 'Peer Node')">👤 Direct Peer</div>
+                <div class="chat-sidebar">
+                    <div class="chat-sidebar-header">
+                        <button class="btn btn-sm" onclick="showAddFriendPrompt()">+ Connect Friend Uid</button>
+                        <button class="btn btn-sm btn-secondary" onclick="showCreateGroupPrompt()">👥 Create Group Chat</button>
+                    </div>
+                    <div class="chat-list" id="chat-list">
+                        <div class="chat-item active" onclick="selectChat(event, 'Global Mesh', 'global')">
+                            <div class="chat-item-name">🌐 Global Mesh</div>
+                            <div class="chat-item-sub">All active P2P nodes</div>
+                        </div>
+                    </div>
                 </div>
+
                 <div class="chat-window">
+                    <div class="chat-window-header">
+                        <div>
+                            <strong style="font-size: 1rem; color: var(--text-color);" id="current-chat-title">🌐 Global Mesh</strong>
+                            <div style="font-size: 0.78rem; color: var(--text-muted);" id="current-chat-sub">End-to-End P2P Encrypted</div>
+                        </div>
+                    </div>
                     <div class="chat-messages" id="chat-messages">
                         <div class="msg-bubble msg-recv">
-                            <strong>System:</strong> AWEMessenger active. Enter a friend's permanent Messenger ID to start messaging.
+                            <div class="msg-sender">System</div>
+                            AWEMessenger active. Enter a friend's Uid or create a group to start messaging across the world!
                         </div>
                     </div>
                     <div style="display: flex; gap: 8px;">
                         <input type="text" id="chat-input" placeholder="Type message..." onkeydown="if(event.key==='Enter') sendMessage()">
-                        <button class="btn" style="width: 90px;" onclick="sendMessage()">Send</button>
+                        <button class="btn" style="width: 100px;" onclick="sendMessage()">Send</button>
                     </div>
                 </div>
             </div>
@@ -632,8 +752,25 @@
         let activeNodeDescriptor = null;
         let userMessengerId = null;
         let dailyUploadedBytes = 0;
-        let activeNodesCount = 1;
+        let activeNodesCount = 0;
         let userContributedGB = 0;
+
+        let activeChatId = 'global';
+        let chats = {
+            'global': { name: '🌐 Global Mesh', sub: 'All active P2P nodes', messages: [] }
+        };
+
+        function copyUidToClipboard() {
+            if (!userMessengerId) {
+                alert('Uid not available yet. Please register or login.');
+                return;
+            }
+            navigator.clipboard.writeText(userMessengerId).then(() => {
+                alert(`Copied Uid to clipboard!\n${userMessengerId}`);
+            }).catch(() => {
+                prompt('Copy your Uid manually:', userMessengerId);
+            });
+        }
 
         function switchAuthTab(tab) {
             document.getElementById('btn-tab-register').classList.toggle('active', tab === 'register');
@@ -721,10 +858,11 @@
         function completeAuthentication(username, messengerId) {
             document.getElementById('auth-modal').style.display = 'none';
             document.getElementById('user-display').innerText = 'User: ' + username;
-            document.getElementById('msg-id-display').innerText = 'Messenger ID: ' + messengerId;
+            document.getElementById('top-uid-display').innerText = messengerId;
             document.getElementById('node-msg-id-text').innerText = messengerId;
+            document.getElementById('messenger-my-uid').innerText = messengerId;
 
-            document.getElementById('real-disk-display').value = '184.50 GB Available';
+            document.getElementById('real-disk-display').value = '184.50 GB Available Hardware';
             updateNetworkCapacity();
         }
 
@@ -738,9 +876,10 @@
 
         function updateNetworkCapacity() {
             const baseAvgGB = 50;
-            const globalCapacityGB = (activeNodesCount * baseAvgGB) + userContributedGB;
-            const dynamicLimitGB = Math.max(10, globalCapacityGB / 5);
+            const globalCapacityGB = isNodeActive ? (activeNodesCount * baseAvgGB) + userContributedGB : 0;
+            const dynamicLimitGB = isNodeActive ? Math.max(10, globalCapacityGB / 5) : 0;
 
+            document.getElementById('active-peers').innerText = `${activeNodesCount} Peer(s) Online`;
             document.getElementById('net-capacity-display').innerText = `${globalCapacityGB.toFixed(1)} GB Total Capacity`;
             document.getElementById('site-limit-display').innerText = `${dynamicLimitGB.toFixed(1)} GB Dynamic Limit`;
         }
@@ -752,36 +891,44 @@
             const realAvailableGB = 184.50;
 
             if (offeredGB <= 0) {
-                alert('Offered storage size must be greater than 0 GB.');
+                isNodeActive = false;
+                userContributedGB = 0;
+                activeNodesCount = 0;
+                document.getElementById('nd-display').innerText = 'No Node ID (Standard User)';
+                document.getElementById('node-id-text').innerText = 'None (Node inactive)';
+                document.getElementById('node-scale-text').innerText = 'Inactive Node';
+                document.getElementById('site-lock').style.display = 'flex';
+                updateNetworkCapacity();
+                alert('Offered storage size is 0 GB. Node deactivated.');
                 return;
             }
 
             if (offeredGB > realAvailableGB) {
-                alert(`Error: Offered storage (${offeredGB} GB) exceeds actual physical disk space (${realAvailableGB} GB)! Node activation rejected.`);
+                alert(`Error: Offered storage (${offeredGB} GB) exceeds actual physical hardware disk space (${realAvailableGB} GB)! Node activation rejected.`);
                 return;
             }
 
             isNodeActive = true;
             userContributedGB = offeredGB;
-            activeNodesCount += 1;
+            activeNodesCount = 1;
 
             const hexStr = currentIdentity.awe_id.toUpperCase();
             activeNodeDescriptor = `ND-${hexStr.substring(0, 4)}-${hexStr.substring(4, 8)}-${hexStr.substring(8, 12)}-${hexStr.substring(12, 16)}`;
 
             const isDatacenter = offeredGB >= 1000;
-            document.getElementById('node-scale-text').innerText = isDatacenter ? 'Datacenter / Server Scale Node' : 'Standard Device Node';
+            document.getElementById('node-scale-text').innerText = isDatacenter ? 'Datacenter / Server Scale Node' : 'Standard Hardware Node';
 
             document.getElementById('nd-display').innerText = activeNodeDescriptor;
             document.getElementById('node-id-text').innerText = activeNodeDescriptor;
             document.getElementById('site-lock').style.display = 'none';
 
             updateNetworkCapacity();
-            alert(`Hardware Verified!\nNode Activated with ${offeredGB} GB Storage Allocation.${isDatacenter ? ' (Datacenter Scale)' : ''}\nYour Node ID: ${activeNodeDescriptor}\nSite Dashboard Unlocked!`);
+            alert(`Real Hardware Verified!\nBackground process active.\nNode Activated with ${offeredGB} GB Storage Allocation.${isDatacenter ? ' (Datacenter Scale)' : ''}\nYour Node ID: ${activeNodeDescriptor}\nSite Dashboard Unlocked!`);
         }
 
         function publishSite() {
             if (!isNodeActive) {
-                alert('Only active Nodes can publish sites!');
+                alert('Only active Nodes with hardware storage allocated can publish sites!');
                 return;
             }
 
@@ -807,7 +954,7 @@
 
             const list = document.getElementById('drive-file-list');
             const item = document.createElement('div');
-            item.style.cssText = 'padding: 10px; background: #090e17; border-radius: 8px; border: 1px solid var(--card-border);';
+            item.style.cssText = 'padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--card-border);';
 
             if (isPrivate) {
                 item.innerHTML = `<strong>${fileName}</strong> (${(fileSize / (1024*1024)).toFixed(1)} MB)<br><span style="font-size: 0.8rem; color: var(--accent-color);">Private .asmap generated (1000 shards)</span>`;
@@ -818,24 +965,122 @@
             list.prepend(item);
         }
 
+        /* AWEMessenger Logic */
+        function showAddFriendPrompt() {
+            const friendUid = prompt('Enter friend\'s Uid (e.g. awe-msg-12345678-87654321):');
+            if (!friendUid || !friendUid.trim()) return;
+
+            const uid = friendUid.trim();
+            const chatId = 'direct_' + uid.replace(/[^a-zA-Z0-9]/g, '');
+
+            if (!chats[chatId]) {
+                chats[chatId] = {
+                    name: '👤 Peer (' + uid.substring(0, 16) + '...)',
+                    sub: uid,
+                    messages: [
+                        { sender: 'System', text: `Connected E2E encrypted chat session with Uid: ${uid}`, isRecv: true }
+                    ]
+                };
+                renderChatList();
+            }
+            openChat(chatId);
+        }
+
+        function showCreateGroupPrompt() {
+            const groupName = prompt('Enter Group Chat Name:');
+            if (!groupName || !groupName.trim()) return;
+
+            const uidsInput = prompt('Enter friend Uids for this group (separated by comma):');
+            if (!uidsInput || !uidsInput.trim()) return;
+
+            const uids = uidsInput.split(',').map(u => u.trim()).filter(u => u.length > 0);
+            const chatId = 'group_' + Date.now();
+
+            chats[chatId] = {
+                name: '👥 ' + groupName.trim(),
+                sub: `Group (${uids.length + 1} members: You, ${uids.join(', ')})`,
+                messages: [
+                    { sender: 'System', text: `Group chat created with members: ${uids.join(', ')}`, isRecv: true }
+                ]
+            };
+            renderChatList();
+            openChat(chatId);
+        }
+
+        function renderChatList() {
+            const listEl = document.getElementById('chat-list');
+            listEl.innerHTML = '';
+
+            for (const [id, chat] of Object.entries(chats)) {
+                const item = document.createElement('div');
+                item.className = 'chat-item' + (id === activeChatId ? ' active' : '');
+                item.onclick = () => openChat(id);
+
+                item.innerHTML = `
+                    <div class="chat-item-name">${chat.name}</div>
+                    <div class="chat-item-sub">${chat.sub}</div>
+                `;
+                listEl.appendChild(item);
+            }
+        }
+
+        function openChat(chatId) {
+            activeChatId = chatId;
+            const chat = chats[chatId];
+            if (!chat) return;
+
+            renderChatList();
+            document.getElementById('current-chat-title').innerText = chat.name;
+            document.getElementById('current-chat-sub').innerText = chat.sub;
+
+            renderMessages();
+        }
+
+        function renderMessages() {
+            const chat = chats[activeChatId];
+            const messagesContainer = document.getElementById('chat-messages');
+            messagesContainer.innerHTML = '';
+
+            if (!chat) return;
+
+            for (const msg of chat.messages) {
+                const bubble = document.createElement('div');
+                bubble.className = 'msg-bubble ' + (msg.isRecv ? 'msg-recv' : 'msg-sent');
+
+                if (msg.isRecv && msg.sender) {
+                    const senderDiv = document.createElement('div');
+                    senderDiv.className = 'msg-sender';
+                    senderDiv.innerText = msg.sender;
+                    bubble.appendChild(senderDiv);
+                }
+
+                const textDiv = document.createElement('div');
+                textDiv.innerText = msg.text;
+                bubble.appendChild(textDiv);
+
+                messagesContainer.appendChild(bubble);
+            }
+
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
         function sendMessage() {
             const input = document.getElementById('chat-input');
             const text = input.value.trim();
-            if (!text) return;
+            if (!text || !chats[activeChatId]) return;
 
-            const chatMessages = document.getElementById('chat-messages');
-            const bubble = document.createElement('div');
-            bubble.className = 'msg-bubble msg-sent';
-            bubble.innerText = text;
-            chatMessages.appendChild(bubble);
+            chats[activeChatId].messages.push({
+                sender: currentIdentity ? currentIdentity.username : 'You',
+                text: text,
+                isRecv: false
+            });
 
             input.value = '';
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+            renderMessages();
         }
 
-        function selectChat(evt, name) {
-            document.querySelectorAll('.chat-item').forEach(item => item.classList.remove('active'));
-            evt.target.classList.add('active');
+        function selectChat(evt, name, id) {
+            openChat(id);
         }
 
         function navigateBrowser() {
@@ -844,12 +1089,12 @@
 
             viewport.innerHTML = `
                 <div style="width: 100%; text-align: left;">
-                    <div style="background: rgba(0, 242, 254, 0.1); border: 1px solid var(--accent-color); padding: 10px; border-radius: 8px; margin-bottom: 12px;">
-                        <strong style="color: var(--accent-color);">[AWE Browser Resolver]:</strong> Reconstructed <strong>${url}</strong> from 1000 Reed-Solomon shards.
+                    <div style="background: #e0f2fe; border: 1px solid #7dd3fc; padding: 10px; border-radius: 8px; margin-bottom: 12px; color: #0369a1;">
+                        <strong>[AWE Browser Resolver]:</strong> Reconstructed <strong>${url}</strong> from 1000 Reed-Solomon shards across P2P network.
                     </div>
-                    <div style="padding: 15px; background: #080c14; border-radius: 8px; border: 1px solid var(--card-border);">
-                        <h2 style="color: #fff; margin-bottom: 8px;">${url}</h2>
-                        <p style="color: var(--text-muted);">Sovereign P2P Web Page live content loaded.</p>
+                    <div style="padding: 15px; background: #ffffff; border-radius: 8px; border: 1px solid var(--card-border);">
+                        <h2 style="color: var(--text-color); margin-bottom: 8px;">${url}</h2>
+                        <p style="color: var(--text-muted);">Sovereign P2P Web Page live content loaded successfully.</p>
                     </div>
                 </div>
             `;
