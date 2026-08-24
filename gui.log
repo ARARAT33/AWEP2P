@@ -1,8 +1,0 @@
-   Compiling awe-node v0.1.0 (/app/apps/awe-node)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.01s
-     Running `target/debug/awe-node gui 41000`
-============================================================
-🌐 AWEp2P Sovereign GUI Platform & Node Server
-Node Descriptor: ND-7164-A97E-1EE9-EA6F
-Dashboard Interface: http://127.0.0.1:41000
-============================================================
