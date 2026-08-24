@@ -1134,7 +1134,7 @@
             list.prepend(item);
         }
 
-        /* Telegram-Style AWEMessenger Logic */
+        /* Sovereign AWEMessenger Logic */
         function showAddFriendPrompt() {
             const uidInput = prompt('Enter friend\'s uid (e.g. uid-awe-msg-12345678-87654321):');
             if (!uidInput || !uidInput.trim()) return;
@@ -1179,7 +1179,7 @@
         }
 
         function showCreateChannelPrompt() {
-            const chanName = prompt('Enter Telegram-style Channel Title:');
+            const chanName = prompt('Enter Channel Title:');
             if (!chanName || !chanName.trim()) return;
 
             const hexStr = Array.from({length: 16}, () => Math.floor(Math.random()*16).toString(16)).join('');
