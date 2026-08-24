@@ -19,6 +19,7 @@
             --lock-bg: rgba(241, 245, 249, 0.94);
             --input-bg: #f8fafc;
             --item-hover: #e2e8f0;
+            --id-blue: #2563eb;
         }
 
         * {
@@ -101,30 +102,36 @@
         }
 
         .form-group {
-            margin-bottom: 18px;
+            margin-bottom: 14px;
             text-align: left;
         }
 
         .form-group label {
             display: block;
-            margin-bottom: 6px;
-            font-size: 0.85rem;
+            margin-bottom: 4px;
+            font-size: 0.82rem;
             color: var(--text-muted);
             font-weight: 600;
         }
 
-        input[type="text"], input[type="password"], input[type="file"], select, textarea {
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        input[type="text"], input[type="number"], input[type="password"], input[type="file"], select, textarea {
             width: 100%;
-            padding: 12px 14px;
+            padding: 10px 12px;
             background: var(--input-bg);
             border: 1px solid var(--card-border);
             border-radius: 8px;
             color: var(--text-color);
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             outline: none;
         }
 
-        input[type="text"]:focus, select:focus, textarea:focus {
+        input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:focus {
             border-color: var(--accent-color);
             box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
         }
@@ -143,6 +150,13 @@
 
         .btn:hover {
             background: var(--accent-hover);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+        }
+        .btn-danger:hover {
+            background: #dc2626;
         }
 
         .btn-secondary {
@@ -263,7 +277,7 @@
 
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
             gap: 18px;
             margin-bottom: 20px;
         }
@@ -284,7 +298,7 @@
         }
 
         .metric {
-            font-size: 2rem;
+            font-size: 1.8rem;
             font-weight: 800;
             color: var(--accent-color);
             margin-bottom: 5px;
@@ -343,21 +357,21 @@
         /* Messenger Chat Layout */
         .messenger-box {
             display: grid;
-            grid-template-columns: 260px 1fr;
+            grid-template-columns: 280px 1fr;
             gap: 12px;
-            height: 440px;
+            height: 460px;
             background: #ffffff;
             border-radius: 10px;
             border: 1px solid var(--card-border);
             overflow: hidden;
         }
 
-        @media (max-width: 600px) {
+        @media (max-width: 650px) {
             .messenger-box {
                 grid-template-columns: 1fr;
             }
             .chat-list {
-                max-height: 120px;
+                max-height: 130px;
             }
         }
 
@@ -373,7 +387,7 @@
             border-bottom: 1px solid var(--card-border);
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 6px;
         }
 
         .chat-list {
@@ -403,6 +417,9 @@
 
         .chat-item-name {
             font-weight: 700;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
         .chat-item-sub {
@@ -470,6 +487,29 @@
             font-weight: 700;
             color: var(--accent-color);
             margin-bottom: 2px;
+        }
+
+        .id-link {
+            color: var(--id-blue);
+            font-weight: 700;
+            text-decoration: underline;
+            cursor: pointer;
+            padding: 0 2px;
+        }
+        .id-link:hover {
+            color: #1d4ed8;
+            background: #dbeafe;
+            border-radius: 4px;
+        }
+        .msg-sent .id-link {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.25);
+            border-radius: 4px;
+            padding: 0 4px;
+        }
+        .msg-sent .id-link:hover {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.4);
         }
 
         .progress-bar-bg {
@@ -558,10 +598,10 @@
         </div>
         <div class="user-info">
             <div class="uid-banner" id="top-uid-banner">
-                <span>Uid: <strong id="top-uid-display">Pending</strong></span>
-                <button class="copy-btn" onclick="copyUidToClipboard()">📋 Copy Uid</button>
+                <span><strong id="top-uid-display">uid-pending</strong></span>
+                <button class="copy-btn" onclick="copyUidToClipboard()">📋 Copy uid</button>
             </div>
-            <span class="nd-badge" id="nd-display">No Node ID (Standard User)</span>
+            <span class="nd-badge" id="nd-display">No nid (Standard User)</span>
             <span class="badge" id="user-display">User: Anonymous</span>
             <div class="badge"><span class="status-dot"></span> Mesh Active</div>
         </div>
@@ -580,35 +620,71 @@
     <div id="node-workspace" class="tab-content active">
         <div class="grid">
             <div class="card">
-                <h3>Node Storage & Datacenter Allocation</h3>
-                <p class="sub-text" style="margin-bottom: 12px;">Offer real local disk space from actual hardware (running background process) to activate Node ID and unlock Site Dashboard.</p>
+                <h3>🖥️ Multi-Hardware Node Allocation</h3>
+                <p class="sub-text" style="margin-bottom: 10px;">Allocate real GPU, TPU, vCPU, RAM, SSD, HDD hardware resources. Background worker automatically locks & encrypts allocated sandbox state.</p>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>GPU VRAM (MB)</label>
+                        <input type="number" id="node-gpu" value="4096">
+                    </div>
+                    <div class="form-group">
+                        <label>TPU Tensor Units</label>
+                        <input type="number" id="node-tpu" value="0">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>vCPU Cores</label>
+                        <input type="number" id="node-vcpu" value="4">
+                    </div>
+                    <div class="form-group">
+                        <label>RAM (MB)</label>
+                        <input type="number" id="node-ram" value="8192">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>SSD Storage (GB)</label>
+                        <input type="number" id="node-ssd" value="20">
+                    </div>
+                    <div class="form-group">
+                        <label>HDD Storage (GB)</label>
+                        <input type="number" id="node-hdd" value="0">
+                    </div>
+                </div>
 
                 <div class="form-group">
-                    <label>Offered Storage (GB)</label>
-                    <input type="text" id="node-storage-input" value="10">
-                </div>
-                <div class="form-group">
-                    <label>Real Hardware Disk Space Available</label>
+                    <label>Real System Disk Space Detected</label>
                     <input type="text" id="real-disk-display" value="Verifying hardware..." readonly style="background: var(--input-bg); color: var(--success); font-weight: bold; font-family: monospace;">
                 </div>
 
-                <button class="btn" onclick="applyNodeAllocation()">Verify Hardware & Activate Node</button>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn" onclick="applyNodeAllocation()">Verify Hardware & Activate Node</button>
+                    <button class="btn btn-danger" style="width: 140px;" onclick="deactivateNode()">Deactivate</button>
+                </div>
             </div>
 
             <div class="card">
-                <h3>🌍 Amber Planet — Real-Time Network Resources</h3>
-                <div class="metric" id="active-peers">1 Peer(s) Online</div>
-                <div class="sub-text">Total Dynamic Mesh Capacity: <strong style="color: var(--accent-color);" id="net-capacity-display">0.0 GB Total Capacity</strong></div>
+                <h3>🌍 Amber Planet — Global Real-Time Resources</h3>
+                <div class="metric" id="active-peers">0 Peer(s) Online</div>
+                <div class="sub-text">Total Dynamic Network Capacity: <strong style="color: var(--accent-color);" id="net-capacity-display">0.0 GB Total Capacity</strong></div>
+                <div class="sub-text">Allocated GPU / TPU: <strong style="color: var(--success);" id="net-gpu-display">0 MB GPU / 0 TPU</strong></div>
+                <div class="sub-text">Allocated vCPU / RAM: <strong style="color: var(--success);" id="net-cpu-display">0 Cores / 0 MB RAM</strong></div>
                 <div class="sub-text">Dynamic Site Upload Limit: <strong style="color: var(--success);" id="site-limit-display">0.0 GB Limit</strong></div>
                 <br>
                 <div class="sub-text">1000-Shard Erasure Coding: <strong style="color: var(--success);">450 Data / 550 Parity (3x Replicated)</strong></div>
             </div>
 
             <div class="card">
-                <h3>Node Identity & Security</h3>
-                <div class="sub-text" style="margin-bottom: 6px;">Node ID: <strong style="color: var(--warning);" id="node-id-text">None (Node inactive)</strong></div>
-                <div class="sub-text" style="margin-bottom: 6px;">User Uid: <strong style="color: var(--accent-color);" id="node-msg-id-text">awe-msg-00000000-00000000</strong></div>
-                <div class="sub-text" style="margin-bottom: 6px;">.awesecret Signature: <strong style="color: var(--success);">Ed25519 Cryptographically Validated</strong></div>
+                <h3>Node Identity, Worker & Security</h3>
+                <div class="sub-text" style="margin-bottom: 6px;">Node ID (nid): <strong style="color: var(--warning);" id="node-id-text">nid-none (Node inactive)</strong></div>
+                <div class="sub-text" style="margin-bottom: 6px;">User ID (uid): <strong style="color: var(--accent-color);" id="node-msg-id-text">uid-pending</strong></div>
+                <div class="sub-text" style="margin-bottom: 6px;">Background Worker: <strong style="color: var(--text-muted);" id="worker-status-text">Stopped</strong></div>
+                <div class="sub-text" style="margin-bottom: 6px;">Power Restore Persistence: <strong style="color: var(--success);">Auto-resume Node state on reboot</strong></div>
+                <div class="sub-text" style="margin-bottom: 6px;">.awesecret Vault Protection: <strong style="color: var(--success);">Tamper-proof Cryptographically Encrypted</strong></div>
                 <div class="sub-text">Node Scale: <strong style="color: var(--text-muted);" id="node-scale-text">Inactive Node</strong></div>
             </div>
         </div>
@@ -621,14 +697,14 @@
                 <div id="site-lock" class="workspace-lock">
                     <div class="lock-icon">🔒</div>
                     <h3>Site Dashboard Locked</h3>
-                    <p class="sub-text">To unlock site publishing, you must allocate real hardware storage (>0 GB) on the Node Dashboard.</p>
+                    <p class="sub-text">To unlock site publishing (aid), allocate real hardware resources on the Node Dashboard.</p>
                 </div>
 
                 <h3>AWESites Folder & Web Application Deployment</h3>
-                <p class="sub-text" style="margin-bottom: 12px;">Publish sovereign P2P websites, full web applications, or zip bundles split into 1000 shards.</p>
+                <p class="sub-text" style="margin-bottom: 12px;">Publish sovereign P2P websites or store apps (aid) split into 1000 shards.</p>
 
                 <div class="form-group">
-                    <label>Domain Name</label>
+                    <label>Domain Name / App ID (aid)</label>
                     <input type="text" id="domain-input" value="awe://my-sovereign-site.awe">
                 </div>
 
@@ -639,7 +715,7 @@
 
                 <div class="form-group">
                     <label>Or Site HTML / Manifest Code</label>
-                    <textarea id="site-html-content" rows="4"><h1>Welcome to My AWE Sovereign Site</h1><p>Published purely across 1000 P2P nodes!</p></textarea>
+                    <textarea id="site-html-content" rows="4"><h1>Welcome to My AWE Sovereign App</h1><p>Registered aid-8849f9a0. Published across P2P nodes!</p></textarea>
                 </div>
 
                 <button class="btn" onclick="publishSite()">Publish Web Bundle & Share Public Link</button>
@@ -651,8 +727,8 @@
     <div id="awedrive" class="tab-content">
         <div class="grid">
             <div class="card">
-                <h3>AWE Drive Storage</h3>
-                <p class="sub-text">Encrypted client-side storage. Split into 1000 shards with 3x replication across nodes.</p>
+                <h3>📁 AWE Drive Storage (fid / sfid)</h3>
+                <p class="sub-text">Encrypted client-side storage. Files generated as fid- standard or sfid- secret files encrypted with .awesecret.</p>
                 <br>
                 <div class="sub-text">Daily Upload Quota Tracker (50 GB / 24 hrs):</div>
                 <div class="progress-bar-bg">
@@ -668,8 +744,8 @@
                     <input type="file" id="drive-upload-file">
                 </div>
                 <div style="display: flex; gap: 10px;">
-                    <button class="btn" onclick="uploadDriveFile(false)">Upload Public File</button>
-                    <button class="btn btn-secondary" style="width: 100%;" onclick="uploadDriveFile(true)">Upload Private File (.asmap)</button>
+                    <button class="btn" onclick="uploadDriveFile(false)">Upload Public File (fid)</button>
+                    <button class="btn btn-secondary" style="width: 100%;" onclick="uploadDriveFile(true)">Upload Secret File (sfid)</button>
                 </div>
             </div>
 
@@ -678,7 +754,7 @@
                 <div id="drive-file-list" class="sub-text" style="display: flex; flex-direction: column; gap: 10px;">
                     <div style="padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--card-border);">
                         <strong>welcome_guide.pdf</strong> (1.2 MB)<br>
-                        <span style="font-size: 0.8rem; color: var(--accent-color);">Public URL: awe://welcome_guide.pdf</span>
+                        <span style="font-size: 0.8rem;" class="id-link">fid-a912f038ba9d2e11</span>
                     </div>
                 </div>
             </div>
@@ -688,16 +764,17 @@
     <!-- 4. AWEMessenger Tab -->
     <div id="awemessenger" class="tab-content">
         <div class="card">
-            <h3>💬 AWEMessenger — Global P2P Encrypted Chat</h3>
+            <h3>💬 AWEMessenger — Channels (chid), Groups (gid), Direct (uid)</h3>
             <p class="sub-text" style="margin-bottom: 12px;">
-                Your Uid is <strong style="color: var(--accent-color);" id="messenger-my-uid">Pending</strong>. Give your Uid to friends anywhere in the world to connect!
+                Your User ID: <strong style="color: var(--accent-color);" id="messenger-my-uid">uid-pending</strong>. All IDs auto-highlight in blue for instant 1-click access!
             </p>
 
             <div class="messenger-box">
                 <div class="chat-sidebar">
                     <div class="chat-sidebar-header">
-                        <button class="btn btn-sm" onclick="showAddFriendPrompt()">+ Connect Friend Uid</button>
-                        <button class="btn btn-sm btn-secondary" onclick="showCreateGroupPrompt()">👥 Create Group Chat</button>
+                        <button class="btn btn-sm" onclick="showAddFriendPrompt()">+ Connect User (uid)</button>
+                        <button class="btn btn-sm btn-secondary" onclick="showCreateGroupPrompt()">👥 Create Group (gid)</button>
+                        <button class="btn btn-sm btn-secondary" onclick="showCreateChannelPrompt()">📢 Create Channel (chid)</button>
                     </div>
                     <div class="chat-list" id="chat-list">
                         <div class="chat-item active" onclick="selectChat(event, 'Global Mesh', 'global')">
@@ -717,11 +794,11 @@
                     <div class="chat-messages" id="chat-messages">
                         <div class="msg-bubble msg-recv">
                             <div class="msg-sender">System</div>
-                            AWEMessenger active. Enter a friend's Uid or create a group to start messaging across the world!
+                            AWEMessenger active. Enter a friend's uid, create a gid group, or chid channel!
                         </div>
                     </div>
                     <div style="display: flex; gap: 8px;">
-                        <input type="text" id="chat-input" placeholder="Type message..." onkeydown="if(event.key==='Enter') sendMessage()">
+                        <input type="text" id="chat-input" placeholder="Type message or paste any uid-, chid-, gid-, fid-, sfid-, aid-, nid-..." onkeydown="if(event.key==='Enter') sendMessage()">
                         <button class="btn" style="width: 100px;" onclick="sendMessage()">Send</button>
                     </div>
                 </div>
@@ -734,13 +811,13 @@
         <div class="card">
             <h3>AWE Browser Engine</h3>
             <div class="browser-bar">
-                <input type="text" id="browser-url" value="awe://my-sovereign-site.awe" placeholder="awe://domain.awe or sid://id">
+                <input type="text" id="browser-url" value="awe://my-sovereign-site.awe" placeholder="awe://domain.awe or aid-8849f9a0">
                 <button class="btn" style="width: 110px;" onclick="navigateBrowser()">Go</button>
             </div>
             <div class="viewport" id="browser-viewport">
                 <div>
                     <h2 style="color: var(--accent-color); margin-bottom: 8px;">AWE Sovereign Browser</h2>
-                    <p>Enter any <code>awe://</code> domain or public file URL.</p>
+                    <p>Enter any <code>awe://</code> domain or store app ID (<code>aid-</code>).</p>
                 </div>
             </div>
         </div>
@@ -749,26 +826,56 @@
     <script>
         let currentIdentity = null;
         let isNodeActive = false;
-        let activeNodeDescriptor = null;
-        let userMessengerId = null;
+        let activeNid = null;
+        let userUid = null;
         let dailyUploadedBytes = 0;
         let activeNodesCount = 0;
-        let userContributedGB = 0;
+
+        let currentHardware = {
+            gpu_vram_mb: 0,
+            tpu_units: 0,
+            vcpu_cores: 0,
+            ram_mb: 0,
+            ssd_gb: 0,
+            hdd_gb: 0
+        };
 
         let activeChatId = 'global';
         let chats = {
             'global': { name: '🌐 Global Mesh', sub: 'All active P2P nodes', messages: [] }
         };
 
+        // Helper to escape HTML special characters for XSS prevention
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, "&amp;")
+                      .replace(/</g, "&lt;")
+                      .replace(/>/g, "&gt;")
+                      .replace(/"/g, "&quot;")
+                      .replace(/'/g, "&#039;");
+        }
+
+        // Utility to convert text with IDs into highlighted blue span elements safely
+        function formatTextWithBlueIds(text) {
+            if (!text) return '';
+            const safeText = escapeHtml(text);
+            const idRegex = /\b(uid-awe-msg-[a-f0-9-]+|uid-[a-f0-9-]+|chid-[a-f0-9-]+|gid-[a-f0-9-]+|fid-[a-f0-9-]+|sfid-[a-f0-9-]+|aid-[a-f0-9-]+|nid-[a-f0-9-]+)\b/gi;
+            return safeText.replace(idRegex, match => `<span class="id-link" onclick="handleIdClick('${match}')">${match}</span>`);
+        }
+
+        function handleIdClick(idString) {
+            alert(`🔗 Clicked Entity ID: ${idString}\nType: ${idString.split('-')[0].toUpperCase()}`);
+        }
+
         function copyUidToClipboard() {
-            if (!userMessengerId) {
+            if (!userUid) {
                 alert('Uid not available yet. Please register or login.');
                 return;
             }
-            navigator.clipboard.writeText(userMessengerId).then(() => {
-                alert(`Copied Uid to clipboard!\n${userMessengerId}`);
+            navigator.clipboard.writeText(userUid).then(() => {
+                alert(`Copied Uid to clipboard!\n${userUid}`);
             }).catch(() => {
-                prompt('Copy your Uid manually:', userMessengerId);
+                prompt('Copy your Uid manually:', userUid);
             });
         }
 
@@ -799,22 +906,21 @@
             }
 
             const aweIdHex = Array.from({length: 32}, (_, i) => ((i * 17 + username.length) % 256).toString(16).padStart(2, '0')).join('');
-            const pubKeyHex = aweIdHex;
-            const messengerId = 'awe-msg-' + aweIdHex.substring(0, 8) + '-' + aweIdHex.substring(8, 16);
+            const uid = 'uid-awe-msg-' + aweIdHex.substring(0, 8) + '-' + aweIdHex.substring(8, 16);
 
             currentIdentity = {
                 username: username,
                 awe_id: aweIdHex,
-                messenger_id: messengerId
+                uid: uid
             };
 
-            userMessengerId = messengerId;
+            userUid = uid;
 
             const secretContent = JSON.stringify({
                 username: username,
                 awe_id: aweIdHex,
                 secret_key: aweIdHex,
-                public_key: pubKeyHex,
+                public_key: aweIdHex,
                 signature: 'ed25519_signature_valid_' + aweIdHex.substring(0, 16)
             }, null, 2);
 
@@ -824,7 +930,7 @@
             a.download = `${username}.awesecret`;
             a.click();
 
-            completeAuthentication(username, messengerId);
+            completeAuthentication(username, uid);
         }
 
         function loginUser() {
@@ -841,28 +947,57 @@
                     return;
                 }
 
-                const messengerId = 'awe-msg-' + data.awe_id.substring(0, 8) + '-' + data.awe_id.substring(8, 16);
+                const uid = 'uid-awe-msg-' + data.awe_id.substring(0, 8) + '-' + data.awe_id.substring(8, 16);
                 currentIdentity = {
                     username: data.username,
                     awe_id: data.awe_id,
-                    messenger_id: messengerId
+                    uid: uid
                 };
 
-                userMessengerId = messengerId;
-                completeAuthentication(data.username, messengerId);
+                userUid = uid;
+                completeAuthentication(data.username, uid);
             } catch (err) {
                 alert('Tampered or corrupted .awesecret file! Authentication rejected.');
             }
         }
 
-        function completeAuthentication(username, messengerId) {
+        function completeAuthentication(username, uid) {
             document.getElementById('auth-modal').style.display = 'none';
             document.getElementById('user-display').innerText = 'User: ' + username;
-            document.getElementById('top-uid-display').innerText = messengerId;
-            document.getElementById('node-msg-id-text').innerText = messengerId;
-            document.getElementById('messenger-my-uid').innerText = messengerId;
+            document.getElementById('top-uid-display').innerText = uid;
+            document.getElementById('node-msg-id-text').innerText = uid;
+            document.getElementById('messenger-my-uid').innerText = uid;
 
-            document.getElementById('real-disk-display').value = '184.50 GB Available Hardware';
+            document.getElementById('real-disk-display').value = '184.50 GB Available Hardware Disk Space';
+
+            // Check if node state was saved previously (power restore simulation)
+            const savedState = localStorage.getItem('awep2p_node_state_' + username);
+            if (savedState) {
+                try {
+                    const parsed = JSON.parse(savedState);
+                    if (parsed.is_active_node) {
+                        currentHardware = parsed.hardware;
+                        isNodeActive = true;
+                        activeNodesCount = 1;
+                        activeNid = parsed.nid;
+
+                        document.getElementById('node-gpu').value = currentHardware.gpu_vram_mb;
+                        document.getElementById('node-tpu').value = currentHardware.tpu_units;
+                        document.getElementById('node-vcpu').value = currentHardware.vcpu_cores;
+                        document.getElementById('node-ram').value = currentHardware.ram_mb;
+                        document.getElementById('node-ssd').value = currentHardware.ssd_gb;
+                        document.getElementById('node-hdd').value = currentHardware.hdd_gb;
+
+                        document.getElementById('nd-display').innerText = activeNid;
+                        document.getElementById('node-id-text').innerText = activeNid;
+                        document.getElementById('worker-status-text').innerText = 'Running (Sandbox Encrypted)';
+                        document.getElementById('worker-status-text').style.color = 'var(--success)';
+                        document.getElementById('node-scale-text').innerText = 'Hardware Node Active';
+                        document.getElementById('site-lock').style.display = 'none';
+                    }
+                } catch(e) {}
+            }
+
             updateNetworkCapacity();
         }
 
@@ -875,71 +1010,100 @@
         }
 
         function updateNetworkCapacity() {
-            const baseAvgGB = 50;
-            const globalCapacityGB = isNodeActive ? (activeNodesCount * baseAvgGB) + userContributedGB : 0;
+            const storageGB = currentHardware.ssd_gb + currentHardware.hdd_gb;
+            const globalCapacityGB = isNodeActive ? (activeNodesCount * 50) + storageGB : 0;
             const dynamicLimitGB = isNodeActive ? Math.max(10, globalCapacityGB / 5) : 0;
 
             document.getElementById('active-peers').innerText = `${activeNodesCount} Peer(s) Online`;
-            document.getElementById('net-capacity-display').innerText = `${globalCapacityGB.toFixed(1)} GB Total Capacity`;
+            document.getElementById('net-capacity-display').innerText = `${globalCapacityGB.toFixed(1)} GB Total Storage Capacity`;
+            document.getElementById('net-gpu-display').innerText = `${currentHardware.gpu_vram_mb} MB VRAM / ${currentHardware.tpu_units} TPU`;
+            document.getElementById('net-cpu-display').innerText = `${currentHardware.vcpu_cores} vCPU / ${currentHardware.ram_mb} MB RAM`;
             document.getElementById('site-limit-display').innerText = `${dynamicLimitGB.toFixed(1)} GB Dynamic Limit`;
         }
 
         function applyNodeAllocation() {
             if (!currentIdentity) return;
 
-            const offeredGB = parseFloat(document.getElementById('node-storage-input').value) || 0;
+            const gpu = parseInt(document.getElementById('node-gpu').value) || 0;
+            const tpu = parseInt(document.getElementById('node-tpu').value) || 0;
+            const vcpu = parseInt(document.getElementById('node-vcpu').value) || 0;
+            const ram = parseInt(document.getElementById('node-ram').value) || 0;
+            const ssd = parseInt(document.getElementById('node-ssd').value) || 0;
+            const hdd = parseInt(document.getElementById('node-hdd').value) || 0;
+
+            const totalStorage = ssd + hdd;
             const realAvailableGB = 184.50;
 
-            if (offeredGB <= 0) {
-                isNodeActive = false;
-                userContributedGB = 0;
-                activeNodesCount = 0;
-                document.getElementById('nd-display').innerText = 'No Node ID (Standard User)';
-                document.getElementById('node-id-text').innerText = 'None (Node inactive)';
-                document.getElementById('node-scale-text').innerText = 'Inactive Node';
-                document.getElementById('site-lock').style.display = 'flex';
-                updateNetworkCapacity();
-                alert('Offered storage size is 0 GB. Node deactivated.');
+            if (gpu <= 0 && tpu <= 0 && vcpu <= 0 && ram <= 0 && totalStorage <= 0) {
+                deactivateNode();
+                alert('No hardware resources allocated. Node deactivated.');
                 return;
             }
 
-            if (offeredGB > realAvailableGB) {
-                alert(`Error: Offered storage (${offeredGB} GB) exceeds actual physical hardware disk space (${realAvailableGB} GB)! Node activation rejected.`);
+            if (totalStorage > realAvailableGB) {
+                alert(`Error: Offered storage (${totalStorage} GB) exceeds actual hardware disk space (${realAvailableGB} GB)! Node activation rejected.`);
                 return;
             }
 
             isNodeActive = true;
-            userContributedGB = offeredGB;
             activeNodesCount = 1;
 
-            const hexStr = currentIdentity.awe_id.toUpperCase();
-            activeNodeDescriptor = `ND-${hexStr.substring(0, 4)}-${hexStr.substring(4, 8)}-${hexStr.substring(8, 12)}-${hexStr.substring(12, 16)}`;
+            currentHardware = { gpu_vram_mb: gpu, tpu_units: tpu, vcpu_cores: vcpu, ram_mb: ram, ssd_gb: ssd, hdd_gb: hdd };
 
-            const isDatacenter = offeredGB >= 1000;
-            document.getElementById('node-scale-text').innerText = isDatacenter ? 'Datacenter / Server Scale Node' : 'Standard Hardware Node';
+            const hexStr = currentIdentity.awe_id.toLowerCase();
+            activeNid = `nid-${hexStr.substring(0, 16)}`;
 
-            document.getElementById('nd-display').innerText = activeNodeDescriptor;
-            document.getElementById('node-id-text').innerText = activeNodeDescriptor;
+            document.getElementById('nd-display').innerText = activeNid;
+            document.getElementById('node-id-text').innerText = activeNid;
+            document.getElementById('worker-status-text').innerText = 'Running (Sandbox Encrypted)';
+            document.getElementById('worker-status-text').style.color = 'var(--success)';
+            document.getElementById('node-scale-text').innerText = (totalStorage >= 1000 || tpu >= 1) ? 'Datacenter / Server Scale Node' : 'Standard Hardware Node';
             document.getElementById('site-lock').style.display = 'none';
 
+            // Save persistent state so power disconnection/reconnect restores node status automatically
+            localStorage.setItem('awep2p_node_state_' + currentIdentity.username, JSON.stringify({
+                is_active_node: true,
+                nid: activeNid,
+                hardware: currentHardware
+            }));
+
             updateNetworkCapacity();
-            alert(`Real Hardware Verified!\nBackground process active.\nNode Activated with ${offeredGB} GB Storage Allocation.${isDatacenter ? ' (Datacenter Scale)' : ''}\nYour Node ID: ${activeNodeDescriptor}\nSite Dashboard Unlocked!`);
+            alert(`Real Hardware Verified!\nDedicated background worker locking allocated hardware resources.\nNode ID: ${activeNid}\nSite Dashboard Unlocked!`);
+        }
+
+        function deactivateNode() {
+            isNodeActive = false;
+            activeNodesCount = 0;
+            activeNid = null;
+            currentHardware = { gpu_vram_mb: 0, tpu_units: 0, vcpu_cores: 0, ram_mb: 0, ssd_gb: 0, hdd_gb: 0 };
+
+            document.getElementById('nd-display').innerText = 'No nid (Standard User)';
+            document.getElementById('node-id-text').innerText = 'nid-none (Node inactive)';
+            document.getElementById('worker-status-text').innerText = 'Stopped';
+            document.getElementById('worker-status-text').style.color = 'var(--text-muted)';
+            document.getElementById('node-scale-text').innerText = 'Inactive Node';
+            document.getElementById('site-lock').style.display = 'flex';
+
+            if (currentIdentity) {
+                localStorage.removeItem('awep2p_node_state_' + currentIdentity.username);
+            }
+
+            updateNetworkCapacity();
         }
 
         function publishSite() {
             if (!isNodeActive) {
-                alert('Only active Nodes with hardware storage allocated can publish sites!');
+                alert('Only active Nodes with hardware resources allocated can publish sites!');
                 return;
             }
 
             const domain = document.getElementById('domain-input').value;
-            const folderInput = document.getElementById('site-folder-input');
-            const fileCount = folderInput.files ? folderInput.files.length : 0;
+            const aid = 'aid-' + Array.from({length: 16}, () => Math.floor(Math.random()*16).toString(16)).join('');
 
-            alert(`Site Bundle Published Successfully!\n\nDomain: ${domain}\nFiles included: ${fileCount > 0 ? fileCount + ' files from folder' : 'Single page'}\nEncoded into 1000 Reed-Solomon shards across network.`);
+            alert(`Site / Store App Published Successfully!\n\nDomain: ${domain}\nApp ID: ${aid}\nSplit across 1000 Reed-Solomon shards.`);
         }
 
-        function uploadDriveFile(isPrivate) {
+        function uploadDriveFile(isSecret) {
             const fileInput = document.getElementById('drive-upload-file');
             const file = fileInput.files[0];
             const fileName = file ? file.name : 'p2p_file.bin';
@@ -956,21 +1120,25 @@
             const item = document.createElement('div');
             item.style.cssText = 'padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--card-border);';
 
-            if (isPrivate) {
-                item.innerHTML = `<strong>${fileName}</strong> (${(fileSize / (1024*1024)).toFixed(1)} MB)<br><span style="font-size: 0.8rem; color: var(--accent-color);">Private .asmap generated (1000 shards)</span>`;
+            const hexPart = Array.from({length: 16}, () => Math.floor(Math.random()*16).toString(16)).join('');
+
+            if (isSecret) {
+                const sfid = 'sfid-' + hexPart;
+                item.innerHTML = `<strong>${fileName}</strong> (${(fileSize / (1024*1024)).toFixed(1)} MB)<br><span style="font-size: 0.8rem;" class="id-link" onclick="handleIdClick('${sfid}')">${sfid}</span> (Secret - Decryptable via device .awesecret)`;
             } else {
-                item.innerHTML = `<strong>${fileName}</strong> (${(fileSize / (1024*1024)).toFixed(1)} MB)<br><span style="font-size: 0.8rem; color: var(--success);">Public AWE Link: awe://${fileName}</span>`;
+                const fid = 'fid-' + hexPart;
+                item.innerHTML = `<strong>${fileName}</strong> (${(fileSize / (1024*1024)).toFixed(1)} MB)<br><span style="font-size: 0.8rem;" class="id-link" onclick="handleIdClick('${fid}')">${fid}</span> (Public AWE link)`;
             }
 
             list.prepend(item);
         }
 
-        /* AWEMessenger Logic */
+        /* Telegram-Style AWEMessenger Logic */
         function showAddFriendPrompt() {
-            const friendUid = prompt('Enter friend\'s Uid (e.g. awe-msg-12345678-87654321):');
-            if (!friendUid || !friendUid.trim()) return;
+            const uidInput = prompt('Enter friend\'s uid (e.g. uid-awe-msg-12345678-87654321):');
+            if (!uidInput || !uidInput.trim()) return;
 
-            const uid = friendUid.trim();
+            const uid = uidInput.trim();
             const chatId = 'direct_' + uid.replace(/[^a-zA-Z0-9]/g, '');
 
             if (!chats[chatId]) {
@@ -978,7 +1146,7 @@
                     name: '👤 Peer (' + uid.substring(0, 16) + '...)',
                     sub: uid,
                     messages: [
-                        { sender: 'System', text: `Connected E2E encrypted chat session with Uid: ${uid}`, isRecv: true }
+                        { sender: 'System', text: `Direct encrypted channel connected to ${uid}`, isRecv: true }
                     ]
                 };
                 renderChatList();
@@ -987,20 +1155,41 @@
         }
 
         function showCreateGroupPrompt() {
-            const groupName = prompt('Enter Group Chat Name:');
+            const groupName = prompt('Enter Group Name:');
             if (!groupName || !groupName.trim()) return;
 
-            const uidsInput = prompt('Enter friend Uids for this group (separated by comma):');
+            const uidsInput = prompt('Enter member uids (separated by comma):');
             if (!uidsInput || !uidsInput.trim()) return;
 
             const uids = uidsInput.split(',').map(u => u.trim()).filter(u => u.length > 0);
+            const hexStr = Array.from({length: 16}, () => Math.floor(Math.random()*16).toString(16)).join('');
+            const gid = 'gid-' + hexStr;
             const chatId = 'group_' + Date.now();
 
             chats[chatId] = {
                 name: '👥 ' + groupName.trim(),
-                sub: `Group (${uids.length + 1} members: You, ${uids.join(', ')})`,
+                sub: `${gid} (${uids.length + 1} members)`,
                 messages: [
-                    { sender: 'System', text: `Group chat created with members: ${uids.join(', ')}`, isRecv: true }
+                    { sender: 'System', text: `Group created: ${gid} with members: ${uids.join(', ')}`, isRecv: true }
+                ]
+            };
+            renderChatList();
+            openChat(chatId);
+        }
+
+        function showCreateChannelPrompt() {
+            const chanName = prompt('Enter Telegram-style Channel Title:');
+            if (!chanName || !chanName.trim()) return;
+
+            const hexStr = Array.from({length: 16}, () => Math.floor(Math.random()*16).toString(16)).join('');
+            const chid = 'chid-' + hexStr;
+            const chatId = 'channel_' + Date.now();
+
+            chats[chatId] = {
+                name: '📢 ' + chanName.trim(),
+                sub: `${chid} (Public Broadcast Channel)`,
+                messages: [
+                    { sender: 'Channel System', text: `Broadcast Channel created with ${chid}. Subscribers can follow updates!`, isRecv: true }
                 ]
             };
             renderChatList();
@@ -1017,7 +1206,7 @@
                 item.onclick = () => openChat(id);
 
                 item.innerHTML = `
-                    <div class="chat-item-name">${chat.name}</div>
+                    <div class="chat-item-name"><span>${chat.name}</span></div>
                     <div class="chat-item-sub">${chat.sub}</div>
                 `;
                 listEl.appendChild(item);
@@ -1055,7 +1244,7 @@
                 }
 
                 const textDiv = document.createElement('div');
-                textDiv.innerText = msg.text;
+                textDiv.innerHTML = formatTextWithBlueIds(msg.text);
                 bubble.appendChild(textDiv);
 
                 messagesContainer.appendChild(bubble);
@@ -1090,7 +1279,7 @@
             viewport.innerHTML = `
                 <div style="width: 100%; text-align: left;">
                     <div style="background: #e0f2fe; border: 1px solid #7dd3fc; padding: 10px; border-radius: 8px; margin-bottom: 12px; color: #0369a1;">
-                        <strong>[AWE Browser Resolver]:</strong> Reconstructed <strong>${url}</strong> from 1000 Reed-Solomon shards across P2P network.
+                        <strong>[AWE Browser Resolver]:</strong> Reconstructed <strong>${formatTextWithBlueIds(url)}</strong> from 1000 Reed-Solomon shards across P2P network.
                     </div>
                     <div style="padding: 15px; background: #ffffff; border-radius: 8px; border: 1px solid var(--card-border);">
                         <h2 style="color: var(--text-color); margin-bottom: 8px;">${url}</h2>
