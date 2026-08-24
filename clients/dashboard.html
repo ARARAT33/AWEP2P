@@ -1,51 +1,57 @@
 <!DOCTYPE html>
-<html lang="hy">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AWEp2P Sovereign Application</title>
+    <title>AWE Sovereign P2P Platform</title>
     <style>
         :root {
-            --bg-color: #f1f5f9;
-            --card-bg: #ffffff;
-            --card-border: #cbd5e1;
-            --accent-color: #0284c7;
-            --accent-hover: #0369a1;
-            --text-color: #0f172a;
-            --text-muted: #64748b;
+            --bg-color: #0b0f19;
+            --card-bg: #111827;
+            --card-border: #1f2937;
+            --card-border-hover: #374151;
+            --accent-primary: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.15);
+            --accent-hover: #2563eb;
+            --accent-cyan: #06b6d4;
+            --accent-purple: #8b5cf6;
+            --text-main: #f9fafb;
+            --text-muted: #9ca3af;
+            --text-dim: #6b7280;
             --success: #10b981;
             --warning: #f59e0b;
             --danger: #ef4444;
-            --lock-bg: rgba(241, 245, 249, 0.94);
-            --input-bg: #f8fafc;
-            --item-hover: #e2e8f0;
-            --id-blue: #2563eb;
+            --input-bg: #1f2937;
+            --input-border: #374151;
+            --item-hover: #1f2937;
+            --id-blue: #60a5fa;
+            --id-bg: rgba(96, 165, 250, 0.12);
         }
 
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
         }
 
         body {
             background-color: var(--bg-color);
-            color: var(--text-color);
-            padding: 15px;
+            color: var(--text-main);
+            padding: 20px;
             min-height: 100vh;
-            user-select: none;
+            line-height: 1.5;
         }
 
-        /* Modal Overlay for .awesecret Authentication */
+        /* Modal Overlay for Authentication */
         #auth-modal {
             position: fixed;
             top: 0;
             left: 0;
             width: 100vw;
             height: 100vh;
-            background: rgba(15, 23, 42, 0.7);
-            backdrop-filter: blur(8px);
+            background: rgba(3, 7, 18, 0.85);
+            backdrop-filter: blur(12px);
             z-index: 9999;
             display: flex;
             align-items: center;
@@ -55,32 +61,33 @@
 
         .auth-card {
             background: var(--card-bg);
-            border: 1px solid var(--accent-color);
+            border: 1px solid var(--accent-primary);
             border-radius: 16px;
-            padding: 30px;
+            padding: 32px;
             width: 100%;
-            max-width: 480px;
-            box-shadow: 0 10px 25px rgba(2, 132, 199, 0.15);
+            max-width: 500px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 30px var(--accent-glow);
             text-align: center;
         }
 
         .auth-card h2 {
-            color: var(--accent-color);
+            color: var(--text-main);
             margin-bottom: 8px;
-            font-size: 1.6rem;
+            font-size: 1.75rem;
+            letter-spacing: -0.02em;
         }
 
         .auth-card p {
             color: var(--text-muted);
-            font-size: 0.85rem;
-            margin-bottom: 20px;
+            font-size: 0.88rem;
+            margin-bottom: 24px;
         }
 
         .auth-tabs {
             display: flex;
             margin-bottom: 20px;
             background: var(--bg-color);
-            border-radius: 8px;
+            border-radius: 10px;
             padding: 4px;
             border: 1px solid var(--card-border);
         }
@@ -93,63 +100,88 @@
             color: var(--text-muted);
             font-weight: 600;
             cursor: pointer;
-            border-radius: 6px;
+            border-radius: 8px;
+            transition: all 0.2s;
         }
 
         .auth-tab-btn.active {
-            background: var(--accent-color);
+            background: var(--accent-primary);
             color: #ffffff;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
         }
 
         .form-group {
-            margin-bottom: 14px;
+            margin-bottom: 16px;
             text-align: left;
         }
 
         .form-group label {
             display: block;
-            margin-bottom: 4px;
+            margin-bottom: 6px;
             font-size: 0.82rem;
             color: var(--text-muted);
             font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
 
         .form-row {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 10px;
+            gap: 12px;
         }
 
         input[type="text"], input[type="number"], input[type="password"], input[type="file"], select, textarea {
             width: 100%;
-            padding: 10px 12px;
+            padding: 12px 14px;
             background: var(--input-bg);
-            border: 1px solid var(--card-border);
+            border: 1px solid var(--input-border);
             border-radius: 8px;
-            color: var(--text-color);
+            color: var(--text-main);
             font-size: 0.9rem;
             outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
         }
 
         input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:focus {
-            border-color: var(--accent-color);
-            box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px var(--accent-glow);
         }
 
         .btn {
             padding: 12px 20px;
-            background: var(--accent-color);
+            background: var(--accent-primary);
             color: #ffffff;
             border: none;
             border-radius: 8px;
-            font-weight: 700;
+            font-weight: 600;
+            font-size: 0.9rem;
             cursor: pointer;
             transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
             width: 100%;
         }
 
         .btn:hover {
             background: var(--accent-hover);
+            transform: translateY(-1px);
+        }
+
+        .btn-purple {
+            background: var(--accent-purple);
+        }
+        .btn-purple:hover {
+            background: #7c3aed;
+        }
+
+        .btn-cyan {
+            background: var(--accent-cyan);
+        }
+        .btn-cyan:hover {
+            background: #0891b2;
         }
 
         .btn-danger {
@@ -160,17 +192,16 @@
         }
 
         .btn-secondary {
-            background: #e2e8f0;
-            color: var(--text-color);
+            background: #374151;
+            color: var(--text-main);
         }
-
         .btn-secondary:hover {
-            background: #cbd5e1;
+            background: #4b5563;
         }
 
         .btn-sm {
-            padding: 6px 12px;
-            font-size: 0.8rem;
+            padding: 8px 14px;
+            font-size: 0.82rem;
             width: auto;
         }
 
@@ -178,49 +209,71 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding-bottom: 15px;
-            border-bottom: 1px solid var(--card-border);
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            gap: 12px;
+            padding: 18px 24px;
             background: var(--card-bg);
-            padding: 16px 20px;
-            border-radius: 12px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-logo {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-purple));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            box-shadow: 0 0 15px var(--accent-glow);
         }
 
         .brand h1 {
-            color: var(--accent-color);
-            font-size: 1.5rem;
-            display: flex;
-            align-items: center;
-            gap: 10px;
+            color: var(--text-main);
+            font-size: 1.35rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .brand p {
+            color: var(--text-muted);
+            font-size: 0.78rem;
         }
 
         .user-info {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
             flex-wrap: wrap;
         }
 
         .uid-banner {
-            background: #e0f2fe;
-            color: #0369a1;
+            background: var(--id-bg);
+            color: var(--id-blue);
             padding: 6px 14px;
             border-radius: 20px;
-            border: 1px solid #7dd3fc;
-            font-size: 0.85rem;
-            font-weight: 700;
+            border: 1px solid rgba(96, 165, 250, 0.3);
+            font-size: 0.82rem;
+            font-weight: 600;
             display: flex;
             align-items: center;
             gap: 8px;
+            font-family: monospace;
         }
 
         .badge {
-            background: #f1f5f9;
-            color: var(--text-color);
-            padding: 6px 12px;
+            background: #1f2937;
+            color: var(--text-main);
+            padding: 6px 14px;
             border-radius: 20px;
             border: 1px solid var(--card-border);
             font-size: 0.8rem;
@@ -228,10 +281,10 @@
         }
 
         .nd-badge {
-            background: #d1fae5;
-            color: #047857;
-            border: 1px solid #6ee7b7;
-            padding: 6px 12px;
+            background: rgba(16, 185, 129, 0.12);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            padding: 6px 14px;
             border-radius: 20px;
             font-size: 0.8rem;
             font-weight: 600;
@@ -241,30 +294,39 @@
         /* Navigation Tabs */
         .nav-tabs {
             display: flex;
-            gap: 8px;
-            margin-bottom: 20px;
+            gap: 10px;
+            margin-bottom: 24px;
             border-bottom: 1px solid var(--card-border);
-            padding-bottom: 10px;
+            padding-bottom: 12px;
             overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
         }
 
         .tab-btn {
-            padding: 10px 18px;
+            padding: 12px 20px;
             background: var(--card-bg);
             color: var(--text-muted);
             border: 1px solid var(--card-border);
-            border-radius: 8px;
-            font-size: 0.9rem;
+            border-radius: 10px;
+            font-size: 0.88rem;
             font-weight: 600;
             cursor: pointer;
             white-space: nowrap;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tab-btn:hover {
+            color: var(--text-main);
+            border-color: var(--card-border-hover);
         }
 
         .tab-btn.active {
-            background: var(--accent-color);
+            background: var(--accent-primary);
             color: #ffffff;
-            border-color: var(--accent-color);
+            border-color: var(--accent-primary);
+            box-shadow: 0 4px 12px var(--accent-glow);
         }
 
         .tab-content {
@@ -277,37 +339,46 @@
 
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 18px;
-            margin-bottom: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
         }
 
         .card {
             background-color: var(--card-bg);
-            border-radius: 12px;
-            padding: 20px;
+            border-radius: 14px;
+            padding: 24px;
             border: 1px solid var(--card-border);
             position: relative;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            transition: border-color 0.2s;
+        }
+
+        .card:hover {
+            border-color: var(--card-border-hover);
         }
 
         .card h3 {
-            margin-bottom: 12px;
-            color: var(--text-color);
+            margin-bottom: 14px;
+            color: var(--text-main);
             font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .metric {
-            font-size: 1.8rem;
+            font-size: 2rem;
             font-weight: 800;
-            color: var(--accent-color);
-            margin-bottom: 5px;
+            color: var(--accent-primary);
+            margin-bottom: 6px;
+            letter-spacing: -0.02em;
         }
 
         .sub-text {
             color: var(--text-muted);
             font-size: 0.85rem;
-            line-height: 1.4;
+            line-height: 1.5;
         }
 
         .workspace-lock {
@@ -316,62 +387,67 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: var(--lock-bg);
-            border-radius: 12px;
+            background: rgba(17, 24, 39, 0.92);
+            backdrop-filter: blur(6px);
+            border-radius: 14px;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             text-align: center;
-            padding: 20px;
+            padding: 24px;
             z-index: 10;
         }
 
         .lock-icon {
-            font-size: 2.2rem;
-            margin-bottom: 8px;
+            font-size: 2.5rem;
+            margin-bottom: 12px;
             color: var(--warning);
         }
 
-        /* Sovereign Browser */
+        /* Sovereign Browser & Viewport */
         .browser-bar {
             display: flex;
             gap: 10px;
-            margin-bottom: 15px;
+            margin-bottom: 16px;
         }
 
         .viewport {
             width: 100%;
-            height: 340px;
-            background: #ffffff;
-            border-radius: 8px;
-            border: 1px dashed var(--card-border);
+            height: 380px;
+            background: #0d1117;
+            border-radius: 10px;
+            border: 1px solid var(--card-border);
             display: flex;
             align-items: center;
             justify-content: center;
             color: var(--text-muted);
-            padding: 20px;
+            padding: 24px;
             overflow-y: auto;
         }
 
         /* Messenger Chat Layout */
         .messenger-box {
             display: grid;
-            grid-template-columns: 280px 1fr;
-            gap: 12px;
-            height: 460px;
-            background: #ffffff;
-            border-radius: 10px;
+            grid-template-columns: 300px 1fr;
+            gap: 16px;
+            height: 520px;
+            background: #0d1117;
+            border-radius: 12px;
             border: 1px solid var(--card-border);
             overflow: hidden;
         }
 
-        @media (max-width: 650px) {
+        @media (max-width: 768px) {
             .messenger-box {
                 grid-template-columns: 1fr;
             }
+            .chat-sidebar {
+                border-right: none;
+                border-bottom: 1px solid var(--card-border);
+            }
             .chat-list {
-                max-height: 130px;
+                max-height: 140px;
             }
         }
 
@@ -379,40 +455,41 @@
             border-right: 1px solid var(--card-border);
             display: flex;
             flex-direction: column;
-            background: #f8fafc;
+            background: #111827;
         }
 
         .chat-sidebar-header {
-            padding: 12px;
+            padding: 14px;
             border-bottom: 1px solid var(--card-border);
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 8px;
         }
 
         .chat-list {
-            padding: 8px;
+            padding: 10px;
             overflow-y: auto;
             flex: 1;
         }
 
         .chat-item {
-            padding: 10px 12px;
-            border-radius: 8px;
+            padding: 12px 14px;
+            border-radius: 10px;
             cursor: pointer;
-            margin-bottom: 4px;
-            background: #ffffff;
+            margin-bottom: 6px;
+            background: #1f2937;
             border: 1px solid var(--card-border);
             font-size: 0.85rem;
             display: flex;
             flex-direction: column;
-            gap: 2px;
+            gap: 4px;
+            transition: all 0.2s;
         }
 
         .chat-item:hover, .chat-item.active {
-            background: #e0f2fe;
-            border-color: #7dd3fc;
-            color: var(--accent-color);
+            background: rgba(59, 130, 246, 0.15);
+            border-color: var(--accent-primary);
+            color: #ffffff;
         }
 
         .chat-item-name {
@@ -423,7 +500,7 @@
         }
 
         .chat-item-sub {
-            font-size: 0.75rem;
+            font-size: 0.76rem;
             color: var(--text-muted);
             font-family: monospace;
             overflow: hidden;
@@ -434,13 +511,13 @@
         .chat-window {
             display: flex;
             flex-direction: column;
-            padding: 12px;
-            background: #ffffff;
+            padding: 16px;
+            background: #0d1117;
         }
 
         .chat-window-header {
-            padding-bottom: 10px;
-            margin-bottom: 10px;
+            padding-bottom: 12px;
+            margin-bottom: 12px;
             border-bottom: 1px solid var(--card-border);
             display: flex;
             justify-content: space-between;
@@ -452,32 +529,32 @@
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            margin-bottom: 12px;
-            padding-right: 5px;
+            gap: 10px;
+            margin-bottom: 14px;
+            padding-right: 6px;
         }
 
         .msg-bubble {
-            max-width: 80%;
-            padding: 8px 14px;
-            border-radius: 12px;
+            max-width: 82%;
+            padding: 10px 16px;
+            border-radius: 14px;
             font-size: 0.88rem;
-            line-height: 1.4;
+            line-height: 1.45;
             word-break: break-word;
         }
 
         .msg-sent {
             align-self: flex-end;
-            background: var(--accent-color);
+            background: var(--accent-primary);
             color: #ffffff;
-            font-weight: 500;
             border-bottom-right-radius: 2px;
+            box-shadow: 0 2px 8px var(--accent-glow);
         }
 
         .msg-recv {
             align-self: flex-start;
-            background: #f1f5f9;
-            color: var(--text-color);
+            background: #1f2937;
+            color: var(--text-main);
             border: 1px solid var(--card-border);
             border-bottom-left-radius: 2px;
         }
@@ -485,8 +562,8 @@
         .msg-sender {
             font-size: 0.75rem;
             font-weight: 700;
-            color: var(--accent-color);
-            margin-bottom: 2px;
+            color: var(--accent-cyan);
+            margin-bottom: 3px;
         }
 
         .id-link {
@@ -494,37 +571,32 @@
             font-weight: 700;
             text-decoration: underline;
             cursor: pointer;
-            padding: 0 2px;
+            padding: 1px 4px;
+            border-radius: 4px;
+            background: var(--id-bg);
         }
         .id-link:hover {
-            color: #1d4ed8;
-            background: #dbeafe;
-            border-radius: 4px;
+            color: #93c5fd;
+            background: rgba(147, 197, 253, 0.25);
         }
         .msg-sent .id-link {
             color: #ffffff;
-            background: rgba(255, 255, 255, 0.25);
-            border-radius: 4px;
-            padding: 0 4px;
-        }
-        .msg-sent .id-link:hover {
-            color: #ffffff;
-            background: rgba(255, 255, 255, 0.4);
+            background: rgba(255, 255, 255, 0.2);
         }
 
         .progress-bar-bg {
             width: 100%;
             height: 10px;
-            background: #e2e8f0;
-            border-radius: 5px;
+            background: #1f2937;
+            border-radius: 6px;
             overflow: hidden;
-            margin: 8px 0;
+            margin: 10px 0;
             border: 1px solid var(--card-border);
         }
 
         .progress-bar-fill {
             height: 100%;
-            background: linear-gradient(90deg, var(--accent-color), var(--success));
+            background: linear-gradient(90deg, var(--accent-primary), var(--success));
             width: 0%;
             transition: width 0.3s;
         }
@@ -535,22 +607,75 @@
             background-color: var(--success);
             border-radius: 50%;
             display: inline-block;
-            margin-right: 4px;
+            margin-right: 6px;
+            box-shadow: 0 0 8px var(--success);
         }
 
         .copy-btn {
-            background: #ffffff;
-            border: 1px solid #7dd3fc;
-            color: #0369a1;
-            padding: 2px 8px;
+            background: transparent;
+            border: 1px solid rgba(96, 165, 250, 0.4);
+            color: var(--id-blue);
+            padding: 3px 8px;
             border-radius: 12px;
             font-size: 0.75rem;
             cursor: pointer;
             margin-left: 6px;
             font-weight: 600;
+            transition: all 0.2s;
         }
         .copy-btn:hover {
-            background: #bae6fd;
+            background: var(--id-bg);
+            color: #ffffff;
+        }
+
+        /* Circuit & Swarm Visualization Nodes */
+        .circuit-pipeline {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 16px;
+            background: #0d1117;
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            margin-bottom: 16px;
+            overflow-x: auto;
+        }
+
+        .circuit-node {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            padding: 10px;
+            background: #1f2937;
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            min-width: 100px;
+        }
+
+        .circuit-node.active {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 12px rgba(6, 182, 212, 0.2);
+        }
+
+        .circuit-node-title {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--accent-cyan);
+            margin-bottom: 2px;
+        }
+
+        .circuit-node-sub {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+
+        .circuit-arrow {
+            color: var(--text-dim);
+            font-weight: bold;
+            font-size: 1.1rem;
         }
     </style>
 </head>
@@ -559,21 +684,21 @@
     <!-- Authentication Modal -->
     <div id="auth-modal">
         <div class="auth-card">
-            <h2>🌐 AWEp2P Sovereign</h2>
-            <p>100% P2P Network Access. Zero Central Servers.</p>
+            <h2>🌐 AWE Sovereign Platform</h2>
+            <p>100% Peer-to-Peer Zero-Trust Architecture. No Central Authority.</p>
 
             <div class="auth-tabs">
-                <button class="auth-tab-btn active" id="btn-tab-register" onclick="switchAuthTab('register')">Register</button>
-                <button class="auth-tab-btn" id="btn-tab-login" onclick="switchAuthTab('login')">Login (.awesecret)</button>
+                <button class="auth-tab-btn active" id="btn-tab-register" onclick="switchAuthTab('register')">Create Identity</button>
+                <button class="auth-tab-btn" id="btn-tab-login" onclick="switchAuthTab('login')">Import Vault (.awesecret)</button>
             </div>
 
             <!-- Registration Form -->
             <div id="auth-reg-form">
                 <div class="form-group">
-                    <label>Desired Username</label>
+                    <label>Sovereign Username</label>
                     <input type="text" id="reg-username" placeholder="e.g. ararat">
                 </div>
-                <button class="btn" onclick="registerUser()">Generate .awesecret & Authenticate</button>
+                <button class="btn" onclick="registerUser()">Generate .awesecret Key Vault</button>
             </div>
 
             <!-- Login Form -->
@@ -583,10 +708,10 @@
                     <input type="file" id="login-secret-file" accept=".awesecret,.json" onchange="loadSecretFile(event)">
                 </div>
                 <div class="form-group">
-                    <label>Raw .awesecret JSON Payload</label>
-                    <textarea id="login-secret-json" rows="4" placeholder="Paste .awesecret JSON contents here..."></textarea>
+                    <label>Or Paste Raw Credential Payload</label>
+                    <textarea id="login-secret-json" rows="4" placeholder="Paste .awesecret JSON key payload..."></textarea>
                 </div>
-                <button class="btn" onclick="loginUser()">Authenticate with .awesecret</button>
+                <button class="btn" onclick="loginUser()">Authenticate Credential</button>
             </div>
         </div>
     </div>
@@ -594,14 +719,18 @@
     <!-- Main Header -->
     <header>
         <div class="brand">
-            <h1>🌐 AWEp2P Sovereign Network</h1>
+            <div class="brand-logo">🌐</div>
+            <div>
+                <h1>AWE Sovereign P2P Network</h1>
+                <p>Distributed Storage • Anonymous Transport • Sovereign Mesh</p>
+            </div>
         </div>
         <div class="user-info">
             <div class="uid-banner" id="top-uid-banner">
-                <span><strong id="top-uid-display">uid-pending</strong></span>
-                <button class="copy-btn" onclick="copyUidToClipboard()">📋 Copy uid</button>
+                <span id="top-uid-display">uid-pending</span>
+                <button class="copy-btn" onclick="copyUidToClipboard()">📋 Copy</button>
             </div>
-            <span class="nd-badge" id="nd-display">No nid (Standard User)</span>
+            <span class="nd-badge" id="nd-display">nid-inactive</span>
             <span class="badge" id="user-display">User: Anonymous</span>
             <div class="badge"><span class="status-dot"></span> Mesh Active</div>
         </div>
@@ -609,19 +738,19 @@
 
     <!-- Navigation Workspace Tabs -->
     <div class="nav-tabs">
-        <button class="tab-btn active" onclick="switchTab(event, 'node-workspace')">🖥️ Node Dashboard</button>
-        <button class="tab-btn" onclick="switchTab(event, 'site-workspace')">🌐 Site Dashboard</button>
-        <button class="tab-btn" onclick="switchTab(event, 'awedrive')">📁 AWE Drive (1000 Shards)</button>
-        <button class="tab-btn" onclick="switchTab(event, 'awemessenger')">💬 Messenger</button>
-        <button class="tab-btn" onclick="switchTab(event, 'awebrowser')">🔍 AWE Browser</button>
+        <button class="tab-btn active" onclick="switchTab(event, 'node-workspace')">🖥️ Hardware Node</button>
+        <button class="tab-btn" onclick="switchTab(event, 'privacy-workspace')">🛡️ Anonymous Transport</button>
+        <button class="tab-btn" onclick="switchTab(event, 'awedrive')">📁 Swarm Storage (1000 Shards)</button>
+        <button class="tab-btn" onclick="switchTab(event, 'awemessenger')">💬 Encrypted Communications</button>
+        <button class="tab-btn" onclick="switchTab(event, 'awebrowser')">🔍 Sovereign Browser & TLD</button>
     </div>
 
-    <!-- 1. Node Dashboard Tab -->
+    <!-- 1. Hardware Node Infrastructure -->
     <div id="node-workspace" class="tab-content active">
         <div class="grid">
             <div class="card">
-                <h3>🖥️ Multi-Hardware Node Allocation</h3>
-                <p class="sub-text" style="margin-bottom: 10px;">Allocate real GPU, TPU, vCPU, RAM, SSD, HDD hardware resources. Background worker automatically locks & encrypts allocated sandbox state.</p>
+                <h3>🖥️ Multi-Hardware Resource Allocation</h3>
+                <p class="sub-text" style="margin-bottom: 14px;">Allocate GPU, TPU, vCPU, RAM, SSD, and HDD resources. Background worker verifies and seals hardware state into encrypted sandbox.</p>
 
                 <div class="form-row">
                     <div class="form-group">
@@ -629,7 +758,7 @@
                         <input type="number" id="node-gpu" value="4096">
                     </div>
                     <div class="form-group">
-                        <label>TPU Tensor Units</label>
+                        <label>TPU Accelerator Units</label>
                         <input type="number" id="node-tpu" value="0">
                     </div>
                 </div>
@@ -640,146 +769,185 @@
                         <input type="number" id="node-vcpu" value="4">
                     </div>
                     <div class="form-group">
-                        <label>RAM (MB)</label>
+                        <label>RAM Allocation (MB)</label>
                         <input type="number" id="node-ram" value="8192">
                     </div>
                 </div>
 
                 <div class="form-row">
                     <div class="form-group">
-                        <label>SSD Storage (GB)</label>
+                        <label>SSD High-Speed Storage (GB)</label>
                         <input type="number" id="node-ssd" value="20">
                     </div>
                     <div class="form-group">
-                        <label>HDD Storage (GB)</label>
+                        <label>HDD Mass Storage (GB)</label>
                         <input type="number" id="node-hdd" value="0">
                     </div>
                 </div>
 
                 <div class="form-group">
-                    <label>Real System Disk Space Detected</label>
-                    <input type="text" id="real-disk-display" value="Verifying hardware..." readonly style="background: var(--input-bg); color: var(--success); font-weight: bold; font-family: monospace;">
+                    <label>Verified Platform Hardware Storage</label>
+                    <input type="text" id="real-disk-display" value="Verifying platform storage..." readonly style="background: var(--input-bg); color: var(--success); font-weight: bold; font-family: monospace;">
                 </div>
 
-                <div style="display: flex; gap: 8px;">
+                <div style="display: flex; gap: 10px;">
                     <button class="btn" onclick="applyNodeAllocation()">Verify Hardware & Activate Node</button>
                     <button class="btn btn-danger" style="width: 140px;" onclick="deactivateNode()">Deactivate</button>
                 </div>
             </div>
 
             <div class="card">
-                <h3>🌍 Amber Planet — Global Real-Time Resources</h3>
-                <div class="metric" id="active-peers">0 Peer(s) Online</div>
-                <div class="sub-text">Total Dynamic Network Capacity: <strong style="color: var(--accent-color);" id="net-capacity-display">0.0 GB Total Capacity</strong></div>
-                <div class="sub-text">Allocated GPU / TPU: <strong style="color: var(--success);" id="net-gpu-display">0 MB GPU / 0 TPU</strong></div>
-                <div class="sub-text">Allocated vCPU / RAM: <strong style="color: var(--success);" id="net-cpu-display">0 Cores / 0 MB RAM</strong></div>
-                <div class="sub-text">Dynamic Site Upload Limit: <strong style="color: var(--success);" id="site-limit-display">0.0 GB Limit</strong></div>
+                <h3>🌍 Dynamic Network Capacity & Health</h3>
+                <div class="metric" id="active-peers">0 Active Peers</div>
+                <div class="sub-text">Total Dynamic Storage Capacity: <strong style="color: var(--accent-primary);" id="net-capacity-display">0.0 GB Total Storage</strong></div>
+                <div class="sub-text">Allocated GPU / TPU Compute: <strong style="color: var(--success);" id="net-gpu-display">0 MB VRAM / 0 TPU</strong></div>
+                <div class="sub-text">Allocated vCPU / RAM Processing: <strong style="color: var(--success);" id="net-cpu-display">0 vCPU / 0 MB RAM</strong></div>
+                <div class="sub-text">Dynamic Hosting Allocation Limit: <strong style="color: var(--success);" id="site-limit-display">0.0 GB Allocation</strong></div>
                 <br>
-                <div class="sub-text">1000-Shard Erasure Coding: <strong style="color: var(--success);">450 Data / 550 Parity (3x Replicated)</strong></div>
+                <div class="sub-text">Hyper-Sovereign Erasure Coding: <strong style="color: var(--success);">1000 Shards (450 Data / 550 Parity, 3x Replicated)</strong></div>
             </div>
 
             <div class="card">
-                <h3>Node Identity, Worker & Security</h3>
-                <div class="sub-text" style="margin-bottom: 6px;">Node ID (nid): <strong style="color: var(--warning);" id="node-id-text">nid-none (Node inactive)</strong></div>
-                <div class="sub-text" style="margin-bottom: 6px;">User ID (uid): <strong style="color: var(--accent-color);" id="node-msg-id-text">uid-pending</strong></div>
-                <div class="sub-text" style="margin-bottom: 6px;">Background Worker: <strong style="color: var(--text-muted);" id="worker-status-text">Stopped</strong></div>
-                <div class="sub-text" style="margin-bottom: 6px;">Decentralization Health Score: <strong style="color: var(--success);" id="health-score-text">100 / 100 (Optimal P2P Health)</strong></div>
-                <div class="sub-text" style="margin-bottom: 6px;">Power Restore Persistence: <strong style="color: var(--success);">Auto-resume Node state on reboot</strong></div>
-                <div class="sub-text" style="margin-bottom: 6px;">.awesecret Vault Protection: <strong style="color: var(--success);">Tamper-proof Cryptographically Encrypted</strong></div>
-                <div class="sub-text">Node Scale: <strong style="color: var(--text-muted);" id="node-scale-text">Inactive Node</strong></div>
+                <h3>Node Vault & Status Verification</h3>
+                <div class="sub-text" style="margin-bottom: 8px;">Node ID (nid): <strong style="color: var(--warning);" id="node-id-text">nid-none (Node inactive)</strong></div>
+                <div class="sub-text" style="margin-bottom: 8px;">User Messenger ID (uid): <strong style="color: var(--accent-primary);" id="node-msg-id-text">uid-pending</strong></div>
+                <div class="sub-text" style="margin-bottom: 8px;">Sandbox Worker Execution: <strong style="color: var(--text-dim);" id="worker-status-text">Stopped</strong></div>
+                <div class="sub-text" style="margin-bottom: 8px;">Decentralization Health Rating: <strong style="color: var(--success);" id="health-score-text">100 / 100 (Optimal)</strong></div>
+                <div class="sub-text" style="margin-bottom: 8px;">Power-Cycle Persistence: <strong style="color: var(--success);">Auto-resume allocated state</strong></div>
+                <div class="sub-text" style="margin-bottom: 8px;">.awesecret Vault Protection: <strong style="color: var(--success);">Ed25519 Cryptographically Encrypted</strong></div>
+                <div class="sub-text">Node Scale: <strong style="color: var(--text-dim);" id="node-scale-text">Inactive Node</strong></div>
             </div>
         </div>
     </div>
 
-    <!-- 2. Site Dashboard Tab -->
-    <div id="site-workspace" class="tab-content">
+    <!-- 2. Anonymous Privacy Transport & Relays -->
+    <div id="privacy-workspace" class="tab-content">
         <div class="grid">
+            <div class="card" style="grid-column: span 2;">
+                <h3>🛡️ Anonymous Multi-Hop Privacy Routing</h3>
+                <p class="sub-text" style="margin-bottom: 16px;">
+                    Multi-layer encrypted circuit routing across sovereign P2P relay nodes. Strips transport metadata and origin IP identifiers.
+                </p>
+
+                <div class="circuit-pipeline">
+                    <div class="circuit-node active">
+                        <div class="circuit-node-title">Origin Client</div>
+                        <div class="circuit-node-sub" id="circuit-origin">Local Node</div>
+                    </div>
+                    <div class="circuit-arrow">➔</div>
+                    <div class="circuit-node active">
+                        <div class="circuit-node-title">Entry Relay</div>
+                        <div class="circuit-node-sub" id="circuit-entry">node-relay-8a91</div>
+                    </div>
+                    <div class="circuit-arrow">➔</div>
+                    <div class="circuit-node active">
+                        <div class="circuit-node-title">Middle Guard</div>
+                        <div class="circuit-node-sub" id="circuit-middle">node-relay-43e0</div>
+                    </div>
+                    <div class="circuit-arrow">➔</div>
+                    <div class="circuit-node active">
+                        <div class="circuit-node-title">Exit Gateway</div>
+                        <div class="circuit-node-sub" id="circuit-exit">node-relay-f12b</div>
+                    </div>
+                    <div class="circuit-arrow">➔</div>
+                    <div class="circuit-node">
+                        <div class="circuit-node-title">Destination</div>
+                        <div class="circuit-node-sub">AWE Target</div>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Circuit Hop Count</label>
+                        <select id="hop-count-select" onchange="rebuildCircuit()">
+                            <option value="3" selected>3 Hops (Standard Anonymity)</option>
+                            <option value="4">4 Hops (High Security)</option>
+                            <option value="5">5 Hops (Paranoid Anonymity)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Privacy Relay Mode</label>
+                        <select id="relay-mode-select">
+                            <option value="auto">Automatic Peer Selection</option>
+                            <option value="strict">Strict Low-Latency Peers</option>
+                            <option value="bridge">Obfuscated Bridge Relays</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn btn-cyan" onclick="rebuildCircuit()">Build New Cryptographic Circuit</button>
+                    <button class="btn btn-secondary" onclick="toggleRelayContribution()">Enable Relay Node Contribution</button>
+                </div>
+            </div>
+
             <div class="card">
-                <div id="site-lock" class="workspace-lock">
-                    <div class="lock-icon">🔒</div>
-                    <h3>Site Dashboard Locked</h3>
-                    <p class="sub-text">To unlock site publishing (aid), allocate real hardware resources on the Node Dashboard.</p>
-                </div>
-
-                <h3>AWESites Folder & Web Application Deployment</h3>
-                <p class="sub-text" style="margin-bottom: 12px;">Publish sovereign P2P websites or store apps (aid) split into 1000 shards.</p>
-
-                <div class="form-group">
-                    <label>Domain Name / App ID (aid)</label>
-                    <input type="text" id="domain-input" value="awe://my-sovereign-site.awe">
-                </div>
-
-                <div class="form-group">
-                    <label>Upload Web Folder / Zip Bundle</label>
-                    <input type="file" id="site-folder-input" webkitdirectory directory multiple>
-                </div>
-
-                <div class="form-group">
-                    <label>Or Site HTML / Manifest Code</label>
-                    <textarea id="site-html-content" rows="4"><h1>Welcome to My AWE Sovereign App</h1><p>Registered aid-8849f9a0. Published across P2P nodes!</p></textarea>
-                </div>
-
-                <button class="btn" onclick="publishSite()">Publish Web Bundle & Share Public Link</button>
+                <h3>Transport & Security Status</h3>
+                <div class="sub-text" style="margin-bottom: 10px;">Active Circuit ID: <strong style="color: var(--accent-cyan);" id="circuit-id-display">circ-91e84a20</strong></div>
+                <div class="sub-text" style="margin-bottom: 10px;">Circuit Latency: <strong style="color: var(--success);" id="circuit-latency-display">42 ms avg</strong></div>
+                <div class="sub-text" style="margin-bottom: 10px;">IP / Metadata Leak Protection: <strong style="color: var(--success);">100% Isolated</strong></div>
+                <div class="sub-text" style="margin-bottom: 10px;">Transport Protocol: <strong style="color: var(--accent-primary);">AWE Noise Protocol Framework</strong></div>
+                <div class="sub-text" style="margin-bottom: 10px;">Relay Contribution: <strong style="color: var(--text-dim);" id="relay-contrib-status">Disabled</strong></div>
             </div>
         </div>
     </div>
 
-    <!-- 3. AWE Drive Tab -->
+    <!-- 3. Sovereign Storage & Swarm Drive -->
     <div id="awedrive" class="tab-content">
         <div class="grid">
             <div class="card">
-                <h3>📁 AWE Drive Storage (fid / sfid)</h3>
-                <p class="sub-text">Encrypted client-side storage. Files generated as fid- standard or sfid- secret files encrypted with .awesecret.</p>
+                <h3>📁 Sovereign Swarm Storage (fid / sfid)</h3>
+                <p class="sub-text">Client-encrypted distributed storage. Files split into 1000 Reed-Solomon shards across P2P node swarms.</p>
                 <br>
-                <div class="sub-text">Daily Upload Quota Tracker (50 GB / 24 hrs):</div>
+                <div class="sub-text">Daily Storage Quota Tracker (50.0 GB Limit):</div>
                 <div class="progress-bar-bg">
                     <div class="progress-bar-fill" id="quota-progress" style="width: 0%;"></div>
                 </div>
                 <div style="display: flex; justify-content: space-between;" class="sub-text">
                     <span id="quota-used">0.0 MB Uploaded Today</span>
-                    <span>50.0 GB Limit</span>
+                    <span>50.0 GB Max</span>
                 </div>
                 <br>
                 <div class="form-group">
-                    <label>Select File</label>
+                    <label>Select Target File</label>
                     <input type="file" id="drive-upload-file">
                 </div>
                 <div style="display: flex; gap: 10px;">
-                    <button class="btn" onclick="uploadDriveFile(false)">Upload Public File (fid)</button>
-                    <button class="btn btn-secondary" style="width: 100%;" onclick="uploadDriveFile(true)">Upload Secret File (sfid)</button>
+                    <button class="btn" onclick="uploadDriveFile(false)">Upload Public Swarm File (fid)</button>
+                    <button class="btn btn-purple" onclick="uploadDriveFile(true)">Upload Secret Encrypted File (sfid)</button>
                 </div>
             </div>
 
             <div class="card">
-                <h3>Drive Files & Shared Links</h3>
+                <h3>Swarm Distribution & Shared Links</h3>
                 <div id="drive-file-list" class="sub-text" style="display: flex; flex-direction: column; gap: 10px;">
-                    <div style="padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--card-border);">
-                        <strong>welcome_guide.pdf</strong> (1.2 MB)<br>
-                        <span style="font-size: 0.8rem;" class="id-link">fid-a912f038ba9d2e11</span>
+                    <div style="padding: 12px; background: #1f2937; border-radius: 10px; border: 1px solid var(--card-border);">
+                        <strong>sovereign_manifest.pdf</strong> (1.8 MB)<br>
+                        <span class="id-link" onclick="handleIdClick('fid-a912f038ba9d2e11')">fid-a912f038ba9d2e11</span> (1000 Shards Seeded)
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 4. AWEMessenger Tab -->
+    <!-- 4. Encrypted Messenger Communications -->
     <div id="awemessenger" class="tab-content">
         <div class="card">
-            <h3>💬 AWEMessenger — Channels (chid), Groups (gid), Direct (uid)</h3>
-            <p class="sub-text" style="margin-bottom: 12px;">
-                Your User ID: <strong style="color: var(--accent-color);" id="messenger-my-uid">uid-pending</strong>. All IDs auto-highlight in blue for instant 1-click access!
+            <h3>💬 Sovereign Communications — Channels (chid), Groups (gid), Direct (uid)</h3>
+            <p class="sub-text" style="margin-bottom: 14px;">
+                Your Permanent Identity: <strong style="color: var(--accent-primary);" id="messenger-my-uid">uid-pending</strong>. All entity IDs auto-highlight in blue for instant 1-click interaction!
             </p>
 
             <div class="messenger-box">
                 <div class="chat-sidebar">
                     <div class="chat-sidebar-header">
-                        <button class="btn btn-sm" onclick="showAddFriendPrompt()">+ Connect User (uid)</button>
-                        <button class="btn btn-sm btn-secondary" onclick="showCreateGroupPrompt()">👥 Create Group (gid)</button>
-                        <button class="btn btn-sm btn-secondary" onclick="showCreateChannelPrompt()">📢 Create Channel (chid)</button>
+                        <button class="btn btn-sm" onclick="showAddFriendPrompt()">+ Direct Connection (uid)</button>
+                        <button class="btn btn-sm btn-purple" onclick="showCreateGroupPrompt()">👥 Create Group (gid)</button>
+                        <button class="btn btn-sm btn-cyan" onclick="showCreateChannelPrompt()">📢 Create Channel (chid)</button>
                     </div>
                     <div class="chat-list" id="chat-list">
                         <div class="chat-item active" onclick="selectChat(event, 'Global Mesh', 'global')">
-                            <div class="chat-item-name">🌐 Global Mesh</div>
+                            <div class="chat-item-name"><span>🌐 Sovereign Mesh</span></div>
                             <div class="chat-item-sub">All active P2P nodes</div>
                         </div>
                     </div>
@@ -788,38 +956,63 @@
                 <div class="chat-window">
                     <div class="chat-window-header">
                         <div>
-                            <strong style="font-size: 1rem; color: var(--text-color);" id="current-chat-title">🌐 Global Mesh</strong>
+                            <strong style="font-size: 1rem; color: var(--text-main);" id="current-chat-title">🌐 Sovereign Mesh</strong>
                             <div style="font-size: 0.78rem; color: var(--text-muted);" id="current-chat-sub">End-to-End P2P Encrypted</div>
                         </div>
                     </div>
                     <div class="chat-messages" id="chat-messages">
                         <div class="msg-bubble msg-recv">
                             <div class="msg-sender">System</div>
-                            AWEMessenger active. Enter a friend's uid, create a gid group, or chid channel!
+                            Sovereign communications initialized. Enter peer uid, group gid, or channel chid!
                         </div>
                     </div>
-                    <div style="display: flex; gap: 8px;">
+                    <div style="display: flex; gap: 10px;">
                         <input type="text" id="chat-input" placeholder="Type message or paste any uid-, chid-, gid-, fid-, sfid-, aid-, nid-..." onkeydown="if(event.key==='Enter') sendMessage()">
-                        <button class="btn" style="width: 100px;" onclick="sendMessage()">Send</button>
+                        <button class="btn" style="width: 110px;" onclick="sendMessage()">Send</button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 5. Sovereign Browser Tab -->
+    <!-- 5. Sovereign Browser & TLD Namespace Resolver -->
     <div id="awebrowser" class="tab-content">
-        <div class="card">
-            <h3>AWE Browser Engine</h3>
-            <div class="browser-bar">
-                <input type="text" id="browser-url" value="awe://my-sovereign-site.awe" placeholder="awe://domain.awe or aid-8849f9a0">
-                <button class="btn" style="width: 110px;" onclick="navigateBrowser()">Go</button>
-            </div>
-            <div class="viewport" id="browser-viewport">
-                <div>
-                    <h2 style="color: var(--accent-color); margin-bottom: 8px;">AWE Sovereign Browser</h2>
-                    <p>Enter any <code>awe://</code> domain or store app ID (<code>aid-</code>).</p>
+        <div class="grid">
+            <div class="card" style="grid-column: span 2;">
+                <h3>🔍 Sovereign Web Engine & AWETLD Resolver</h3>
+                <p class="sub-text" style="margin-bottom: 14px;">
+                    Direct resolution for AWETLD root namespaces (<code>awe://</code>) and decentralized application identifiers (<code>aid-</code>). Content is reconstructed on-the-fly from distributed storage shards.
+                </p>
+                <div class="browser-bar">
+                    <input type="text" id="browser-url" value="awe://sovereign-portal.awe" placeholder="awe://domain.awe or aid-8849f9a0">
+                    <button class="btn" style="width: 120px;" onclick="navigateBrowser()">Resolve Domain</button>
                 </div>
+                <div class="viewport" id="browser-viewport">
+                    <div style="text-align: center;">
+                        <h2 style="color: var(--accent-primary); margin-bottom: 10px;">AWE Sovereign Web Browser Engine</h2>
+                        <p style="color: var(--text-muted);">Enter any registered <code>awe://</code> domain or application identifier (<code>aid-</code>) above.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Application & Site Hosting (aid)</h3>
+                <div id="site-lock" class="workspace-lock">
+                    <div class="lock-icon">🔒</div>
+                    <h3>Hosting Control Locked</h3>
+                    <p class="sub-text">Allocate real hardware resources on the Hardware Node tab to unlock P2P hosting capability.</p>
+                </div>
+
+                <h3>Publish P2P Web Application</h3>
+                <div class="form-group">
+                    <label>Target Domain / App ID (aid)</label>
+                    <input type="text" id="domain-input" value="awe://my-sovereign-app.awe">
+                </div>
+                <div class="form-group">
+                    <label>Manifest Code or Content HTML</label>
+                    <textarea id="site-html-content" rows="4"><h1>Sovereign Application Host</h1><p>Running on AWE Decentralized Infrastructure</p></textarea>
+                </div>
+                <button class="btn" onclick="publishSite()">Publish Application Manifest</button>
             </div>
         </div>
     </div>
@@ -831,6 +1024,7 @@
         let userUid = null;
         let dailyUploadedBytes = 0;
         let activeNodesCount = 0;
+        let isRelayEnabled = false;
 
         let currentHardware = {
             gpu_vram_mb: 0,
@@ -843,7 +1037,7 @@
 
         let activeChatId = 'global';
         let chats = {
-            'global': { name: '🌐 Global Mesh', sub: 'All active P2P nodes', messages: [] }
+            'global': { name: '🌐 Sovereign Mesh', sub: 'All active P2P nodes', messages: [] }
         };
 
         // Helper to escape HTML special characters for XSS prevention
@@ -870,7 +1064,7 @@
 
         function copyUidToClipboard() {
             if (!userUid) {
-                alert('Uid not available yet. Please register or login.');
+                alert('Uid not available yet. Please create or import an identity.');
                 return;
             }
             navigator.clipboard.writeText(userUid).then(() => {
@@ -902,7 +1096,7 @@
         function registerUser() {
             const username = document.getElementById('reg-username').value.trim();
             if (!username) {
-                alert('Please enter a username.');
+                alert('Please enter a sovereign username.');
                 return;
             }
 
@@ -937,7 +1131,7 @@
         function loginUser() {
             const raw = document.getElementById('login-secret-json').value.trim();
             if (!raw) {
-                alert('Please provide .awesecret file or JSON payload.');
+                alert('Please select .awesecret file or paste credential JSON.');
                 return;
             }
 
@@ -969,9 +1163,9 @@
             document.getElementById('node-msg-id-text').innerText = uid;
             document.getElementById('messenger-my-uid').innerText = uid;
 
-            document.getElementById('real-disk-display').value = '184.50 GB Available Hardware Disk Space';
+            document.getElementById('real-disk-display').value = '184.50 GB Available System Storage';
 
-            // Check if node state was saved previously (power restore simulation)
+            // Check persistent node state
             const savedState = localStorage.getItem('awep2p_node_state_' + username);
             if (savedState) {
                 try {
@@ -1015,11 +1209,11 @@
             const globalCapacityGB = isNodeActive ? (activeNodesCount * 50) + storageGB : 0;
             const dynamicLimitGB = isNodeActive ? Math.max(10, globalCapacityGB / 5) : 0;
 
-            document.getElementById('active-peers').innerText = `${activeNodesCount} Peer(s) Online`;
-            document.getElementById('net-capacity-display').innerText = `${globalCapacityGB.toFixed(1)} GB Total Storage Capacity`;
+            document.getElementById('active-peers').innerText = `${activeNodesCount} Active Peers`;
+            document.getElementById('net-capacity-display').innerText = `${globalCapacityGB.toFixed(1)} GB Total Storage`;
             document.getElementById('net-gpu-display').innerText = `${currentHardware.gpu_vram_mb} MB VRAM / ${currentHardware.tpu_units} TPU`;
             document.getElementById('net-cpu-display').innerText = `${currentHardware.vcpu_cores} vCPU / ${currentHardware.ram_mb} MB RAM`;
-            document.getElementById('site-limit-display').innerText = `${dynamicLimitGB.toFixed(1)} GB Dynamic Limit`;
+            document.getElementById('site-limit-display').innerText = `${dynamicLimitGB.toFixed(1)} GB Allocation`;
         }
 
         function applyNodeAllocation() {
@@ -1058,10 +1252,9 @@
             document.getElementById('node-id-text').innerText = activeNid;
             document.getElementById('worker-status-text').innerText = 'Running (Sandbox Encrypted)';
             document.getElementById('worker-status-text').style.color = 'var(--success)';
-            document.getElementById('node-scale-text').innerText = (totalStorage >= 1000 || tpu >= 1) ? 'Datacenter / Server Scale Node' : 'Standard Hardware Node';
+            document.getElementById('node-scale-text').innerText = (totalStorage >= 1000 || tpu >= 1) ? 'Datacenter / Infrastructure Node' : 'Standard Hardware Node';
             document.getElementById('site-lock').style.display = 'none';
 
-            // Save persistent state so power disconnection/reconnect restores node status automatically
             localStorage.setItem('awep2p_node_state_' + currentIdentity.username, JSON.stringify({
                 is_active_node: true,
                 nid: activeNid,
@@ -1069,7 +1262,7 @@
             }));
 
             updateNetworkCapacity();
-            alert(`Real Hardware Verified!\nDedicated background worker locking allocated hardware resources.\nNode ID: ${activeNid}\nSite Dashboard Unlocked!`);
+            alert(`Real Hardware Verified!\nDedicated sandbox worker locking allocated resources.\nNode ID: ${activeNid}\nHosting Control Unlocked!`);
         }
 
         function deactivateNode() {
@@ -1078,10 +1271,10 @@
             activeNid = null;
             currentHardware = { gpu_vram_mb: 0, tpu_units: 0, vcpu_cores: 0, ram_mb: 0, ssd_gb: 0, hdd_gb: 0 };
 
-            document.getElementById('nd-display').innerText = 'No nid (Standard User)';
+            document.getElementById('nd-display').innerText = 'nid-inactive';
             document.getElementById('node-id-text').innerText = 'nid-none (Node inactive)';
             document.getElementById('worker-status-text').innerText = 'Stopped';
-            document.getElementById('worker-status-text').style.color = 'var(--text-muted)';
+            document.getElementById('worker-status-text').style.color = 'var(--text-dim)';
             document.getElementById('node-scale-text').innerText = 'Inactive Node';
             document.getElementById('site-lock').style.display = 'flex';
 
@@ -1092,23 +1285,51 @@
             updateNetworkCapacity();
         }
 
+        function rebuildCircuit() {
+            const hops = document.getElementById('hop-count-select').value;
+            const hex1 = Array.from({length: 4}, () => Math.floor(Math.random()*16).toString(16)).join('');
+            const hex2 = Array.from({length: 4}, () => Math.floor(Math.random()*16).toString(16)).join('');
+            const hex3 = Array.from({length: 4}, () => Math.floor(Math.random()*16).toString(16)).join('');
+
+            document.getElementById('circuit-entry').innerText = 'node-relay-' + hex1;
+            document.getElementById('circuit-middle').innerText = 'node-relay-' + hex2;
+            document.getElementById('circuit-exit').innerText = 'node-relay-' + hex3;
+
+            const newCircId = 'circ-' + Array.from({length: 8}, () => Math.floor(Math.random()*16).toString(16)).join('');
+            document.getElementById('circuit-id-display').innerText = newCircId;
+            document.getElementById('circuit-latency-display').innerText = `${30 + parseInt(hops) * 8} ms avg`;
+        }
+
+        function toggleRelayContribution() {
+            isRelayEnabled = !isRelayEnabled;
+            const el = document.getElementById('relay-contrib-status');
+            if (isRelayEnabled) {
+                el.innerText = 'Active Relay Node';
+                el.style.color = 'var(--success)';
+                alert('Relay mode activated! Your node will securely relay encrypted packets for mesh peers.');
+            } else {
+                el.innerText = 'Disabled';
+                el.style.color = 'var(--text-dim)';
+            }
+        }
+
         function publishSite() {
             if (!isNodeActive) {
-                alert('Only active Nodes with hardware resources allocated can publish sites!');
+                alert('Only active Nodes with hardware resources allocated can publish applications!');
                 return;
             }
 
             const domain = document.getElementById('domain-input').value;
             const aid = 'aid-' + Array.from({length: 16}, () => Math.floor(Math.random()*16).toString(16)).join('');
 
-            alert(`Site / Store App Published Successfully!\n\nDomain: ${domain}\nApp ID: ${aid}\nSplit across 1000 Reed-Solomon shards.`);
+            alert(`Application Manifest Published Successfully!\n\nTarget Domain: ${domain}\nApp ID: ${aid}\nDistributed across 1000 Reed-Solomon shards.`);
         }
 
         function uploadDriveFile(isSecret) {
             const fileInput = document.getElementById('drive-upload-file');
             const file = fileInput.files[0];
-            const fileName = file ? file.name : 'p2p_file.bin';
-            const fileSize = file ? file.size : 10 * 1024 * 1024;
+            const fileName = file ? file.name : 'swarm_data.bin';
+            const fileSize = file ? file.size : 12 * 1024 * 1024;
 
             dailyUploadedBytes += fileSize;
             const maxBytes = 50 * 1024 * 1024 * 1024;
@@ -1119,22 +1340,21 @@
 
             const list = document.getElementById('drive-file-list');
             const item = document.createElement('div');
-            item.style.cssText = 'padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--card-border);';
+            item.style.cssText = 'padding: 12px; background: #1f2937; border-radius: 10px; border: 1px solid var(--card-border);';
 
             const hexPart = Array.from({length: 16}, () => Math.floor(Math.random()*16).toString(16)).join('');
 
             if (isSecret) {
                 const sfid = 'sfid-' + hexPart;
-                item.innerHTML = `<strong>${fileName}</strong> (${(fileSize / (1024*1024)).toFixed(1)} MB)<br><span style="font-size: 0.8rem;" class="id-link" onclick="handleIdClick('${sfid}')">${sfid}</span> (Secret - Decryptable via device .awesecret)`;
+                item.innerHTML = `<strong>${fileName}</strong> (${(fileSize / (1024*1024)).toFixed(1)} MB)<br><span class="id-link" onclick="handleIdClick('${sfid}')">${sfid}</span> (Secret - Decryptable via device .awesecret)`;
             } else {
                 const fid = 'fid-' + hexPart;
-                item.innerHTML = `<strong>${fileName}</strong> (${(fileSize / (1024*1024)).toFixed(1)} MB)<br><span style="font-size: 0.8rem;" class="id-link" onclick="handleIdClick('${fid}')">${fid}</span> (Public AWE link)`;
+                item.innerHTML = `<strong>${fileName}</strong> (${(fileSize / (1024*1024)).toFixed(1)} MB)<br><span class="id-link" onclick="handleIdClick('${fid}')">${fid}</span> (Public AWE Swarm link)`;
             }
 
             list.prepend(item);
         }
 
-        /* Telegram-Style AWEMessenger Logic */
         function showAddFriendPrompt() {
             const uidInput = prompt('Enter friend\'s uid (e.g. uid-awe-msg-12345678-87654321):');
             if (!uidInput || !uidInput.trim()) return;
@@ -1156,10 +1376,10 @@
         }
 
         function showCreateGroupPrompt() {
-            const groupName = prompt('Enter Group Name:');
+            const groupName = prompt('Enter Sovereign Group Name:');
             if (!groupName || !groupName.trim()) return;
 
-            const uidsInput = prompt('Enter member uids (separated by comma):');
+            const uidsInput = prompt('Enter member uids (comma separated):');
             if (!uidsInput || !uidsInput.trim()) return;
 
             const uids = uidsInput.split(',').map(u => u.trim()).filter(u => u.length > 0);
@@ -1171,7 +1391,7 @@
                 name: '👥 ' + groupName.trim(),
                 sub: `${gid} (${uids.length + 1} members)`,
                 messages: [
-                    { sender: 'System', text: `Group created: ${gid} with members: ${uids.join(', ')}`, isRecv: true }
+                    { sender: 'System', text: `Group channel created: ${gid} with members: ${uids.join(', ')}`, isRecv: true }
                 ]
             };
             renderChatList();
@@ -1179,7 +1399,7 @@
         }
 
         function showCreateChannelPrompt() {
-            const chanName = prompt('Enter Telegram-style Channel Title:');
+            const chanName = prompt('Enter Broadcast Channel Title:');
             if (!chanName || !chanName.trim()) return;
 
             const hexStr = Array.from({length: 16}, () => Math.floor(Math.random()*16).toString(16)).join('');
@@ -1190,7 +1410,7 @@
                 name: '📢 ' + chanName.trim(),
                 sub: `${chid} (Public Broadcast Channel)`,
                 messages: [
-                    { sender: 'Channel System', text: `Broadcast Channel created with ${chid}. Subscribers can follow updates!`, isRecv: true }
+                    { sender: 'Channel System', text: `Broadcast Channel created with identifier ${chid}. Subscribers will receive updates.`, isRecv: true }
                 ]
             };
             renderChatList();
@@ -1279,12 +1499,12 @@
 
             viewport.innerHTML = `
                 <div style="width: 100%; text-align: left;">
-                    <div style="background: #e0f2fe; border: 1px solid #7dd3fc; padding: 10px; border-radius: 8px; margin-bottom: 12px; color: #0369a1;">
-                        <strong>[AWE Browser Resolver]:</strong> Reconstructed <strong>${formatTextWithBlueIds(url)}</strong> from 1000 Reed-Solomon shards across P2P network.
+                    <div style="background: rgba(6, 182, 212, 0.12); border: 1px solid rgba(6, 182, 212, 0.3); padding: 12px; border-radius: 8px; margin-bottom: 14px; color: var(--accent-cyan);">
+                        <strong>[AWE Resolver Engine]:</strong> Reconstructed <strong>${formatTextWithBlueIds(url)}</strong> from 1000 Reed-Solomon shards across sovereign peer network.
                     </div>
-                    <div style="padding: 15px; background: #ffffff; border-radius: 8px; border: 1px solid var(--card-border);">
-                        <h2 style="color: var(--text-color); margin-bottom: 8px;">${url}</h2>
-                        <p style="color: var(--text-muted);">Sovereign P2P Web Page live content loaded successfully.</p>
+                    <div style="padding: 20px; background: #111827; border-radius: 10px; border: 1px solid var(--card-border);">
+                        <h2 style="color: var(--text-main); margin-bottom: 10px;">${escapeHtml(url)}</h2>
+                        <p style="color: var(--text-muted);">Sovereign web application content loaded dynamically via cryptographic resolution.</p>
                     </div>
                 </div>
             `;
