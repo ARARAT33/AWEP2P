@@ -41,6 +41,23 @@ impl NodeInfo {
         let info: Self = serde_json::from_str(&content)?;
         Ok(info)
     }
+
+    pub fn compute_decentralization_health_score(&self) -> u32 {
+        if !self.is_active_node {
+            return 0;
+        }
+        let mut score = 50u32;
+        if self.offered_bytes > 0 {
+            score += 20;
+        }
+        if self.hardware_allocation.vcpu_cores >= 2 {
+            score += 15;
+        }
+        if self.hardware_allocation.ram_mb >= 2048 {
+            score += 15;
+        }
+        score.min(100)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -228,7 +245,12 @@ mod tests {
 
         // Excessive offer
         let excessive_offer = space.saturating_add(1000 * 1024 * 1024 * 1024);
-        let err = configure_node_storage(&identity, &temp_dir, excessive_offer, HardwareAllocation::default());
+        let err = configure_node_storage(
+            &identity,
+            &temp_dir,
+            excessive_offer,
+            HardwareAllocation::default(),
+        );
         assert!(err.is_err());
         assert!(err
             .unwrap_err()
