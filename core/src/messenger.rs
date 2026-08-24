@@ -167,6 +167,52 @@ pub fn format_messenger_id(awe_id: &[u8; 32]) -> String {
     format!("awe-msg-{}-{}", &hex_str[..8], &hex_str[8..16])
 }
 
+pub fn format_uid(awe_id: &[u8; 32]) -> String {
+    let hex_str = hex::encode(awe_id).to_lowercase();
+    format!("uid-awe-msg-{}-{}", &hex_str[..8], &hex_str[8..16])
+}
+
+pub fn format_chid(id: &[u8; 32]) -> String {
+    format!("chid-{}", &hex::encode(id)[..16])
+}
+
+pub fn format_gid(id: &[u8; 32]) -> String {
+    format!("gid-{}", &hex::encode(id)[..16])
+}
+
+pub fn format_fid(id: &[u8; 32]) -> String {
+    format!("fid-{}", &hex::encode(id)[..16])
+}
+
+pub fn format_sfid(id: &[u8; 32]) -> String {
+    format!("sfid-{}", &hex::encode(id)[..16])
+}
+
+pub fn format_aid(id: &[u8; 32]) -> String {
+    format!("aid-{}", &hex::encode(id)[..16])
+}
+
+pub fn format_nid(id: &[u8; 32]) -> String {
+    format!("nid-{}", &hex::encode(id)[..16])
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Channel {
+    pub id: [u8; 32],
+    pub chid: String,
+    pub title: String,
+    pub owner: [u8; 32],
+    pub subscribers: Vec<[u8; 32]>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SecretFile {
+    pub id: [u8; 32],
+    pub sfid: String,
+    pub encrypted_payload: Vec<u8>,
+    pub awe_secret_signature: String,
+}
+
 pub fn new_ephemeral() -> (StaticSecret, PublicKey) {
     let secret = StaticSecret::random_from_rng(OsRng);
     let public = PublicKey::from(&secret);
@@ -256,5 +302,41 @@ mod tests {
             encrypted_layers: vec![vec![1], vec![2], vec![3]],
         };
         assert!(r.is_private_transport_hint());
+    }
+    #[test]
+    fn entity_id_formatting_and_structures() {
+        let dummy = [0xab; 32];
+        let uid = format_uid(&dummy);
+        let chid = format_chid(&dummy);
+        let gid = format_gid(&dummy);
+        let fid = format_fid(&dummy);
+        let sfid = format_sfid(&dummy);
+        let aid = format_aid(&dummy);
+        let nid = format_nid(&dummy);
+
+        assert!(uid.starts_with("uid-awe-msg-abababab-abababab"));
+        assert!(chid.starts_with("chid-abababababababab"));
+        assert!(gid.starts_with("gid-abababababababab"));
+        assert!(fid.starts_with("fid-abababababababab"));
+        assert!(sfid.starts_with("sfid-abababababababab"));
+        assert!(aid.starts_with("aid-abababababababab"));
+        assert!(nid.starts_with("nid-abababababababab"));
+
+        let ch = Channel {
+            id: dummy,
+            chid: chid.clone(),
+            title: "Announcements Channel".into(),
+            owner: dummy,
+            subscribers: vec![dummy],
+        };
+        assert_eq!(ch.chid, chid);
+
+        let sf = SecretFile {
+            id: dummy,
+            sfid: sfid.clone(),
+            encrypted_payload: vec![1, 2, 3, 4],
+            awe_secret_signature: "valid_awesecret_sig".into(),
+        };
+        assert_eq!(sf.sfid, sfid);
     }
 }

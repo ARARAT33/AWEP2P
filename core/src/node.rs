@@ -5,16 +5,42 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct HardwareAllocation {
+    pub gpu_vram_mb: u64,
+    pub tpu_units: u64,
+    pub vcpu_cores: u32,
+    pub ram_mb: u64,
+    pub ssd_gb: u64,
+    pub hdd_gb: u64,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NodeInfo {
     pub username: String,
     pub awe_id: String,
+    pub nid: String,
     pub offered_bytes: u64,
     pub available_bytes: u64,
     pub is_active_node: bool,
     pub node_descriptor: Option<String>,
     pub site_dashboard_unlocked: bool,
     pub is_datacenter_scale: bool,
+    pub hardware_allocation: HardwareAllocation,
+    pub background_worker_active: bool,
+}
+
+impl NodeInfo {
+    pub fn save_state(&self, path: &Path) -> io::Result<()> {
+        let json = serde_json::to_string_pretty(self)?;
+        fs::write(path, json)
+    }
+
+    pub fn load_state(path: &Path) -> io::Result<Self> {
+        let content = fs::read_to_string(path)?;
+        let info: Self = serde_json::from_str(&content)?;
+        Ok(info)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -112,9 +138,10 @@ pub fn configure_node_storage(
     identity: &Identity,
     storage_path: &Path,
     offered_bytes: u64,
+    hardware: HardwareAllocation,
 ) -> Result<NodeInfo, String> {
-    if offered_bytes == 0 {
-        return Err("Offered storage size must be greater than 0 bytes to become a Node.".into());
+    if offered_bytes == 0 && hardware.ram_mb == 0 && hardware.vcpu_cores == 0 {
+        return Err("Offered resources must be greater than 0 to become a Node.".into());
     }
 
     let real_available = get_available_disk_space(storage_path)
@@ -135,18 +162,27 @@ pub fn configure_node_storage(
     }
 
     let node_desc = format_node_descriptor(identity.public.awe_id.as_bytes());
-    let is_datacenter_scale = offered_bytes >= 1000 * 1024 * 1024 * 1024; // >= 1 TB Datacenter / Server node
+    let nid = format!("nid-{}", &identity.public.awe_id.to_hex()[..16]);
+    let is_datacenter_scale = offered_bytes >= 1000 * 1024 * 1024 * 1024 || hardware.tpu_units >= 1;
 
-    Ok(NodeInfo {
+    let info = NodeInfo {
         username: identity.public.username.as_str().to_string(),
         awe_id: identity.public.awe_id.to_hex(),
+        nid,
         offered_bytes,
         available_bytes: real_available,
         is_active_node: true,
         node_descriptor: Some(node_desc),
         site_dashboard_unlocked: true,
         is_datacenter_scale,
-    })
+        hardware_allocation: hardware,
+        background_worker_active: true,
+    };
+
+    let state_file = storage_path.join("node_state.json");
+    let _ = info.save_state(&state_file);
+
+    Ok(info)
 }
 
 #[cfg(test)]
@@ -169,14 +205,30 @@ mod tests {
 
         // Valid offer
         let valid_offer = space / 2;
-        let info = configure_node_storage(&identity, &temp_dir, valid_offer).unwrap();
+        let hw = HardwareAllocation {
+            gpu_vram_mb: 4096,
+            tpu_units: 0,
+            vcpu_cores: 4,
+            ram_mb: 8192,
+            ssd_gb: 50,
+            hdd_gb: 0,
+        };
+        let info = configure_node_storage(&identity, &temp_dir, valid_offer, hw.clone()).unwrap();
         assert!(info.is_active_node);
         assert!(info.node_descriptor.is_some());
         assert!(info.site_dashboard_unlocked);
+        assert_eq!(info.hardware_allocation, hw);
+        assert!(info.background_worker_active);
+
+        // Verify state persistence
+        let state_file = temp_dir.join("node_state.json");
+        let loaded = NodeInfo::load_state(&state_file).unwrap();
+        assert_eq!(loaded.username, "ararat");
+        assert_eq!(loaded.hardware_allocation, hw);
 
         // Excessive offer
         let excessive_offer = space.saturating_add(1000 * 1024 * 1024 * 1024);
-        let err = configure_node_storage(&identity, &temp_dir, excessive_offer);
+        let err = configure_node_storage(&identity, &temp_dir, excessive_offer, HardwareAllocation::default());
         assert!(err.is_err());
         assert!(err
             .unwrap_err()
