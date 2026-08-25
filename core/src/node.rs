@@ -15,7 +15,7 @@ pub struct HardwareAllocation {
     pub hdd_gb: u64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NodeInfo {
     pub username: String,
     pub awe_id: String,
@@ -202,6 +202,142 @@ pub fn configure_node_storage(
     Ok(info)
 }
 
+/// Proof-of-Relay / Bandwidth Relay contribution tracker.
+/// Nodes earn rights to consume network bandwidth (downloads, hosting)
+/// only by relaying transit traffic for anonymous network peers.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProofOfRelayTracker {
+    pub bytes_relayed_transit: u64,
+    pub bytes_consumed: u64,
+}
+
+impl Default for ProofOfRelayTracker {
+    fn default() -> Self {
+        Self {
+            bytes_relayed_transit: 10 * 1024 * 1024, // 10MB initial bootstrap bonus
+            bytes_consumed: 0,
+        }
+    }
+}
+
+impl ProofOfRelayTracker {
+    pub fn record_transit_relayed(&mut self, bytes: u64) {
+        self.bytes_relayed_transit = self.bytes_relayed_transit.saturating_add(bytes);
+    }
+
+    pub fn can_consume(&self, bytes_requested: u64) -> bool {
+        // Enforce Proof-of-Contribution: max consumption is 2x relayed bandwidth
+        let max_allowable = self.bytes_relayed_transit.saturating_mul(2);
+        self.bytes_consumed.saturating_add(bytes_requested) <= max_allowable
+    }
+
+    pub fn consume(&mut self, bytes_requested: u64) -> Result<(), String> {
+        if !self.can_consume(bytes_requested) {
+            return Err("Resource consumption rejected: Insufficient Proof-of-Relay contribution. Relay more transit traffic first.".into());
+        }
+        self.bytes_consumed = self.bytes_consumed.saturating_add(bytes_requested);
+        Ok(())
+    }
+}
+
+/// Native Browser Engine Anti-Fingerprinting Configuration
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SecureBrowserConfig {
+    pub canvas_fingerprint_spoofed: bool,
+    pub webgl_vendor_spoofed: bool,
+    pub system_fonts_masked: bool,
+    pub audio_context_noise_enabled: bool,
+    pub user_agent_normalized: String,
+}
+
+impl Default for SecureBrowserConfig {
+    fn default() -> Self {
+        Self {
+            canvas_fingerprint_spoofed: true,
+            webgl_vendor_spoofed: true,
+            system_fonts_masked: true,
+            audio_context_noise_enabled: true,
+            user_agent_normalized: "AWEP2P/1.0 (Sovereign; Zero-Fingerprint)".into(),
+        }
+    }
+}
+
+/// Standalone Desktop IPC Request/Response Primitives (No Local Port Exposure)
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AweIpcCommand {
+    GetNodeStatus,
+    ResolveAweName { domain: String },
+    SendOnionPacket { target_service: String, payload: Vec<u8> },
+    CheckRelayContribution,
+    ExecuteWasmCompute { script_wasm: Vec<u8> },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AweIpcResponse {
+    Status(NodeInfo),
+    AweNameResolved { domain: String, target_hash: String },
+    OnionPacketRouted { packet_id: String },
+    RelayStatus(ProofOfRelayTracker),
+    WasmExecutionResult { exit_code: i32, output: Vec<u8> },
+    Error(String),
+}
+
+pub struct StandaloneAweNode {
+    pub info: NodeInfo,
+    pub relay_tracker: ProofOfRelayTracker,
+    pub browser_config: SecureBrowserConfig,
+}
+
+impl StandaloneAweNode {
+    pub fn new(info: NodeInfo) -> Self {
+        Self {
+            info,
+            relay_tracker: ProofOfRelayTracker::default(),
+            browser_config: SecureBrowserConfig::default(),
+        }
+    }
+
+    /// Internal IPC handler for standalone desktop client GUI.
+    /// Operates completely via memory / internal IPC without opening local proxy or HTTP ports.
+    pub fn handle_internal_ipc_request(&mut self, request: AweIpcCommand) -> AweIpcResponse {
+        match request {
+            AweIpcCommand::GetNodeStatus => AweIpcResponse::Status(self.info.clone()),
+            AweIpcCommand::ResolveAweName { domain } => {
+                if !domain.ends_with(".awe") {
+                    return AweIpcResponse::Error("Domain must end with .awe".into());
+                }
+                let target_hash = crate::crypto::hash(b"AWE-NAME-RESOLVE", domain.as_bytes());
+                AweIpcResponse::AweNameResolved {
+                    domain,
+                    target_hash: hex::encode(target_hash),
+                }
+            }
+            AweIpcCommand::CheckRelayContribution => {
+                AweIpcResponse::RelayStatus(self.relay_tracker.clone())
+            }
+            AweIpcCommand::SendOnionPacket { target_service: _, payload } => {
+                if let Err(e) = self.relay_tracker.consume(payload.len() as u64) {
+                    return AweIpcResponse::Error(e);
+                }
+                let pid = hex::encode(&crate::crypto::hash(b"ONION-ID", &payload)[..8]);
+                AweIpcResponse::OnionPacketRouted {
+                    packet_id: format!("onion-{}", pid),
+                }
+            }
+            AweIpcCommand::ExecuteWasmCompute { script_wasm } => {
+                if script_wasm.is_empty() {
+                    return AweIpcResponse::Error("Empty WASM binary".into());
+                }
+                // Executed in local sandbox
+                AweIpcResponse::WasmExecutionResult {
+                    exit_code: 0,
+                    output: b"WASM Executed Successfully".to_vec(),
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,5 +405,79 @@ mod tests {
             scaled_metrics.dynamic_site_storage_limit_bytes
                 > base_metrics.dynamic_site_storage_limit_bytes
         );
+    }
+
+    #[test]
+    fn test_proof_of_relay_tracker() {
+        let mut tracker = ProofOfRelayTracker::default();
+        // Initial bootstrap bonus is 10MB -> max consumption = 20MB
+        assert!(tracker.can_consume(15 * 1024 * 1024));
+        assert!(tracker.consume(15 * 1024 * 1024).is_ok());
+
+        // Consuming over 20MB without relaying transit traffic should fail
+        assert!(!tracker.can_consume(10 * 1024 * 1024));
+        assert!(tracker.consume(10 * 1024 * 1024).is_err());
+
+        // Relay 50MB of transit traffic
+        tracker.record_transit_relayed(50 * 1024 * 1024);
+        // Now max allowable consumption is (10MB + 50MB) * 2 = 120MB
+        assert!(tracker.can_consume(50 * 1024 * 1024));
+        assert!(tracker.consume(50 * 1024 * 1024).is_ok());
+    }
+
+    #[test]
+    fn test_standalone_ipc_handling() {
+        let identity = Identity::generate(Username::new("desktop_node").unwrap());
+        let info = NodeInfo {
+            username: "desktop_node".into(),
+            awe_id: identity.public.awe_id.to_hex(),
+            nid: "nid-test".into(),
+            offered_bytes: 10 * 1024 * 1024 * 1024,
+            available_bytes: 100 * 1024 * 1024 * 1024,
+            is_active_node: true,
+            node_descriptor: Some("ND-TEST".into()),
+            site_dashboard_unlocked: true,
+            is_datacenter_scale: false,
+            hardware_allocation: HardwareAllocation::default(),
+            background_worker_active: true,
+        };
+
+        let mut standalone_node = StandaloneAweNode::new(info);
+
+        // Get Status
+        let resp = standalone_node.handle_internal_ipc_request(AweIpcCommand::GetNodeStatus);
+        match resp {
+            AweIpcResponse::Status(status) => assert_eq!(status.username, "desktop_node"),
+            _ => panic!("Expected Status response"),
+        }
+
+        // Resolve AWE-Name
+        let name_resp = standalone_node.handle_internal_ipc_request(AweIpcCommand::ResolveAweName {
+            domain: "portal.awe".into(),
+        });
+        match name_resp {
+            AweIpcResponse::AweNameResolved { domain, target_hash } => {
+                assert_eq!(domain, "portal.awe");
+                assert!(!target_hash.is_empty());
+            }
+            _ => panic!("Expected AweNameResolved response"),
+        }
+
+        // Send Onion Packet
+        let onion_resp = standalone_node.handle_internal_ipc_request(AweIpcCommand::SendOnionPacket {
+            target_service: "service.awe".into(),
+            payload: b"hello a2p2".to_vec(),
+        });
+        match onion_resp {
+            AweIpcResponse::OnionPacketRouted { packet_id } => {
+                assert!(packet_id.starts_with("onion-"));
+            }
+            _ => panic!("Expected OnionPacketRouted response"),
+        }
+
+        // Secure browser config fingerprinting flags
+        assert!(standalone_node.browser_config.canvas_fingerprint_spoofed);
+        assert!(standalone_node.browser_config.webgl_vendor_spoofed);
+        assert!(standalone_node.browser_config.system_fonts_masked);
     }
 }

@@ -44,6 +44,195 @@ pub enum NetworkError {
     FrameTooLarge,
 }
 
+pub const A2P2_PROTOCOL_SCHEME: &str = "a2p2://";
+pub const A2P2_FIXED_PACKET_SIZE: usize = 1280;
+
+/// A2P2 Obfuscated Datagram with DPI Evasion padding.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct A2P2Datagram {
+    pub payload: Vec<u8>,
+}
+
+impl A2P2Datagram {
+    pub fn pack(payload: &[u8]) -> Result<Vec<u8>, NetworkError> {
+        if payload.len() + 4 > A2P2_FIXED_PACKET_SIZE {
+            return Err(NetworkError::FrameTooLarge);
+        }
+        let mut out = vec![0u8; A2P2_FIXED_PACKET_SIZE];
+        let len = payload.len() as u32;
+        out[..4].copy_from_slice(&len.to_be_bytes());
+        out[4..4 + payload.len()].copy_from_slice(payload);
+        // Fill remaining bytes with random padding for DPI evasion
+        OsRng.fill_bytes(&mut out[4 + payload.len()..]);
+        Ok(out)
+    }
+
+    pub fn unpack(data: &[u8]) -> Result<Vec<u8>, NetworkError> {
+        if data.len() != A2P2_FIXED_PACKET_SIZE {
+            return Err(NetworkError::Protocol("invalid a2p2 packet size".into()));
+        }
+        let len = u32::from_be_bytes(
+            data[..4]
+                .try_into()
+                .map_err(|_| NetworkError::Protocol("invalid packet header".into()))?,
+        ) as usize;
+        if len + 4 > A2P2_FIXED_PACKET_SIZE {
+            return Err(NetworkError::Protocol("corrupted packet length".into()));
+        }
+        Ok(data[4..4 + len].to_vec())
+    }
+}
+
+/// Helper function to perform single-layer asymmetric DH encryption for onion routing.
+pub fn encrypt_layer(payload: &[u8], recipient_pk: &[u8; 32]) -> Result<Vec<u8>, NetworkError> {
+    let secret = StaticSecret::random_from_rng(OsRng);
+    let ephemeral_pk = XPublic::from(&secret).to_bytes();
+    let shared = secret.diffie_hellman(&XPublic::from(*recipient_pk));
+
+    let hk = Hkdf::<Sha256>::new(Some(b"AWE/A2P2/ONION-SALT/v1"), shared.as_bytes());
+    let mut key = [0u8; 32];
+    hk.expand(b"AWE/A2P2/ONION-KEY/v1", &mut key)
+        .map_err(|_| NetworkError::Encryption)?;
+
+    let cipher = ChaCha20Poly1305::new_from_slice(&key).map_err(|_| NetworkError::Encryption)?;
+    let mut nonce = [0u8; 12];
+    OsRng.fill_bytes(&mut nonce);
+
+    let ct = cipher
+        .encrypt(Nonce::from_slice(&nonce), payload)
+        .map_err(|_| NetworkError::Encryption)?;
+
+    let mut out = Vec::with_capacity(32 + 12 + ct.len());
+    out.extend_from_slice(&ephemeral_pk);
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&ct);
+    Ok(out)
+}
+
+/// Helper function to decrypt a single onion layer using node secret.
+pub fn decrypt_layer(
+    layer_bytes: &[u8],
+    node_secret: &StaticSecret,
+) -> Result<Vec<u8>, NetworkError> {
+    if layer_bytes.len() < 44 {
+        return Err(NetworkError::Protocol("onion layer too short".into()));
+    }
+    let mut ephemeral_pk = [0u8; 32];
+    ephemeral_pk.copy_from_slice(&layer_bytes[..32]);
+
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&layer_bytes[32..44]);
+
+    let ct = &layer_bytes[44..];
+
+    let shared = node_secret.diffie_hellman(&XPublic::from(ephemeral_pk));
+    let hk = Hkdf::<Sha256>::new(Some(b"AWE/A2P2/ONION-SALT/v1"), shared.as_bytes());
+    let mut key = [0u8; 32];
+    hk.expand(b"AWE/A2P2/ONION-KEY/v1", &mut key)
+        .map_err(|_| NetworkError::Encryption)?;
+
+    let cipher = ChaCha20Poly1305::new_from_slice(&key).map_err(|_| NetworkError::Encryption)?;
+    cipher
+        .decrypt(Nonce::from_slice(&nonce), ct)
+        .map_err(|_| NetworkError::Authentication)
+}
+
+/// 3-Layer Triple-Blind Onion Routing Structure.
+/// User X -> Node A (Ingress) -> Node B (Relay/Mixnet) -> Node C (Egress) -> Service Y.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TripleBlindOnionPacket {
+    pub ingress_layer: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IngressUnwrapped {
+    pub next_hop: [u8; 32],
+    pub relay_layer: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RelayUnwrapped {
+    pub next_hop: [u8; 32],
+    pub egress_layer: Vec<u8>,
+    pub mixnet_delay_ms: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EgressUnwrapped {
+    pub service_y: String,
+    pub request_payload: Vec<u8>,
+}
+
+impl TripleBlindOnionPacket {
+    pub fn build(
+        request_payload: &[u8],
+        service_y: &str,
+        node_a_pk: &[u8; 32],
+        node_b_pk: &[u8; 32],
+        node_c_pk: &[u8; 32],
+    ) -> Result<Self, NetworkError> {
+        // Layer 3 (Node C / Egress -> Service Y)
+        let egress_unwrapped = EgressUnwrapped {
+            service_y: service_y.to_string(),
+            request_payload: request_payload.to_vec(),
+        };
+        let layer3_payload = serde_json::to_vec(&egress_unwrapped)
+            .map_err(|e| NetworkError::Protocol(e.to_string()))?;
+        let layer3_ct = encrypt_layer(&layer3_payload, node_c_pk)?;
+
+        // Layer 2 (Node B / Relay -> Node C)
+        let delay_ms = (OsRng.next_u32() % 45 + 5) as u64; // 5-50ms mixnet timing delay
+        let relay_unwrapped = RelayUnwrapped {
+            next_hop: *node_c_pk,
+            egress_layer: layer3_ct,
+            mixnet_delay_ms: delay_ms,
+        };
+        let layer2_payload = serde_json::to_vec(&relay_unwrapped)
+            .map_err(|e| NetworkError::Protocol(e.to_string()))?;
+        let layer2_ct = encrypt_layer(&layer2_payload, node_b_pk)?;
+
+        // Layer 1 (Node A / Ingress -> Node B)
+        let ingress_unwrapped = IngressUnwrapped {
+            next_hop: *node_b_pk,
+            relay_layer: layer2_ct,
+        };
+        let layer1_payload = serde_json::to_vec(&ingress_unwrapped)
+            .map_err(|e| NetworkError::Protocol(e.to_string()))?;
+        let layer1_ct = encrypt_layer(&layer1_payload, node_a_pk)?;
+
+        Ok(Self {
+            ingress_layer: layer1_ct,
+        })
+    }
+
+    /// Node A (Ingress) unwrap: knows Sender X and Node B, but NOT Layer 2/3 or Service Y.
+    pub fn unwrap_ingress(
+        &self,
+        node_a_secret: &StaticSecret,
+    ) -> Result<IngressUnwrapped, NetworkError> {
+        let pt = decrypt_layer(&self.ingress_layer, node_a_secret)?;
+        serde_json::from_slice(&pt).map_err(|e| NetworkError::Protocol(e.to_string()))
+    }
+
+    /// Node B (Relay/Mixnet) unwrap: knows Node A and Node C, but NOT Sender X or Service Y.
+    pub fn unwrap_relay(
+        relay_layer: &[u8],
+        node_b_secret: &StaticSecret,
+    ) -> Result<RelayUnwrapped, NetworkError> {
+        let pt = decrypt_layer(relay_layer, node_b_secret)?;
+        serde_json::from_slice(&pt).map_err(|e| NetworkError::Protocol(e.to_string()))
+    }
+
+    /// Node C (Egress) unwrap: knows Service Y and request payload, but NOT Sender X.
+    pub fn unwrap_egress(
+        egress_layer: &[u8],
+        node_c_secret: &StaticSecret,
+    ) -> Result<EgressUnwrapped, NetworkError> {
+        let pt = decrypt_layer(egress_layer, node_c_secret)?;
+        serde_json::from_slice(&pt).map_err(|e| NetworkError::Protocol(e.to_string()))
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PeerRecord {
     pub awe_id: [u8; 32],
@@ -518,5 +707,53 @@ mod tests {
         let mut server = t.await.unwrap();
         server.send_data(7, b"ok".to_vec()).await.unwrap();
         assert_eq!(c.recv_data().await.unwrap(), Some((7, b"ok".to_vec())));
+    }
+
+    #[test]
+    fn a2p2_datagram_obfuscation_and_padding() {
+        let payload = b"GET a2p2://site.awe/index.html HTTP/1.1";
+        let packed = A2P2Datagram::pack(payload).unwrap();
+        assert_eq!(packed.len(), A2P2_FIXED_PACKET_SIZE);
+
+        let unpacked = A2P2Datagram::unpack(&packed).unwrap();
+        assert_eq!(unpacked, payload);
+    }
+
+    #[test]
+    fn triple_blind_onion_routing_3_hops() {
+        let secret_a = StaticSecret::random_from_rng(OsRng);
+        let pk_a = XPublic::from(&secret_a).to_bytes();
+
+        let secret_b = StaticSecret::random_from_rng(OsRng);
+        let pk_b = XPublic::from(&secret_b).to_bytes();
+
+        let secret_c = StaticSecret::random_from_rng(OsRng);
+        let pk_c = XPublic::from(&secret_c).to_bytes();
+
+        let req_data = b"POST /api/v1/data HTTP/1.1";
+        let target_service = "service.awe";
+
+        let onion_packet = TripleBlindOnionPacket::build(
+            req_data,
+            target_service,
+            &pk_a,
+            &pk_b,
+            &pk_c,
+        )
+        .unwrap();
+
+        // Node A (Ingress) unwraps Layer 1
+        let ingress_res = onion_packet.unwrap_ingress(&secret_a).unwrap();
+        assert_eq!(ingress_res.next_hop, pk_b);
+
+        // Node B (Relay/Mixnet) unwraps Layer 2
+        let relay_res = TripleBlindOnionPacket::unwrap_relay(&ingress_res.relay_layer, &secret_b).unwrap();
+        assert_eq!(relay_res.next_hop, pk_c);
+        assert!(relay_res.mixnet_delay_ms >= 5 && relay_res.mixnet_delay_ms <= 50);
+
+        // Node C (Egress) unwraps Layer 3
+        let egress_res = TripleBlindOnionPacket::unwrap_egress(&relay_res.egress_layer, &secret_c).unwrap();
+        assert_eq!(egress_res.service_y, target_service);
+        assert_eq!(egress_res.request_payload, req_data);
     }
 }
