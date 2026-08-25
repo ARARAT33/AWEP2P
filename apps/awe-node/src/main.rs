@@ -142,15 +142,24 @@ async fn run_standalone_app() -> Result<()> {
     let mut standalone_node = StandaloneAweNode::new(info);
 
     println!("============================================================");
-    println!("🛡️ AWEp2P Sovereign Standalone Native Desktop Engine (100% Rust)");
+    println!("🛡️ AWEp2P Sovereign Standalone Native App Engine (100% Rust)");
     println!("Node Descriptor: {}", nd);
-    println!("Architecture: Standalone Application IPC (Zero Local Ports Open)");
+    println!("Architecture: Standalone Native Application (Zero Ports Open)");
+    println!("Status: ACTIVE (Running sovereign node engine background loop...)");
+    println!("Press Ctrl+C to stop.");
     println!("============================================================");
 
     let status_resp = standalone_node.handle_internal_ipc_request(AweIpcCommand::GetNodeStatus);
     if let AweIpcResponse::Status(status) = status_resp {
         println!("🚀 Node Engine Initialized for User: {}", status.username);
         println!("🔒 Anti-Fingerprinting Active: Canvas/WebGL/Fonts Masked");
+    }
+
+    // Keep the native Rust node app running continuously until signal
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            println!("Shutting down AWEp2P native standalone application...");
+        }
     }
 
     Ok(())
