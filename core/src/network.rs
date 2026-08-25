@@ -733,26 +733,22 @@ mod tests {
         let req_data = b"POST /api/v1/data HTTP/1.1";
         let target_service = "service.awe";
 
-        let onion_packet = TripleBlindOnionPacket::build(
-            req_data,
-            target_service,
-            &pk_a,
-            &pk_b,
-            &pk_c,
-        )
-        .unwrap();
+        let onion_packet =
+            TripleBlindOnionPacket::build(req_data, target_service, &pk_a, &pk_b, &pk_c).unwrap();
 
         // Node A (Ingress) unwraps Layer 1
         let ingress_res = onion_packet.unwrap_ingress(&secret_a).unwrap();
         assert_eq!(ingress_res.next_hop, pk_b);
 
         // Node B (Relay/Mixnet) unwraps Layer 2
-        let relay_res = TripleBlindOnionPacket::unwrap_relay(&ingress_res.relay_layer, &secret_b).unwrap();
+        let relay_res =
+            TripleBlindOnionPacket::unwrap_relay(&ingress_res.relay_layer, &secret_b).unwrap();
         assert_eq!(relay_res.next_hop, pk_c);
         assert!(relay_res.mixnet_delay_ms >= 5 && relay_res.mixnet_delay_ms <= 50);
 
         // Node C (Egress) unwraps Layer 3
-        let egress_res = TripleBlindOnionPacket::unwrap_egress(&relay_res.egress_layer, &secret_c).unwrap();
+        let egress_res =
+            TripleBlindOnionPacket::unwrap_egress(&relay_res.egress_layer, &secret_c).unwrap();
         assert_eq!(egress_res.service_y, target_service);
         assert_eq!(egress_res.request_payload, req_data);
     }
