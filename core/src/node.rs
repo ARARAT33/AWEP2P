@@ -266,10 +266,17 @@ impl Default for SecureBrowserConfig {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AweIpcCommand {
     GetNodeStatus,
-    ResolveAweName { domain: String },
-    SendOnionPacket { target_service: String, payload: Vec<u8> },
+    ResolveAweName {
+        domain: String,
+    },
+    SendOnionPacket {
+        target_service: String,
+        payload: Vec<u8>,
+    },
     CheckRelayContribution,
-    ExecuteWasmCompute { script_wasm: Vec<u8> },
+    ExecuteWasmCompute {
+        script_wasm: Vec<u8>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -315,7 +322,10 @@ impl StandaloneAweNode {
             AweIpcCommand::CheckRelayContribution => {
                 AweIpcResponse::RelayStatus(self.relay_tracker.clone())
             }
-            AweIpcCommand::SendOnionPacket { target_service: _, payload } => {
+            AweIpcCommand::SendOnionPacket {
+                target_service: _,
+                payload,
+            } => {
                 if let Err(e) = self.relay_tracker.consume(payload.len() as u64) {
                     return AweIpcResponse::Error(e);
                 }
@@ -452,11 +462,15 @@ mod tests {
         }
 
         // Resolve AWE-Name
-        let name_resp = standalone_node.handle_internal_ipc_request(AweIpcCommand::ResolveAweName {
-            domain: "portal.awe".into(),
-        });
+        let name_resp =
+            standalone_node.handle_internal_ipc_request(AweIpcCommand::ResolveAweName {
+                domain: "portal.awe".into(),
+            });
         match name_resp {
-            AweIpcResponse::AweNameResolved { domain, target_hash } => {
+            AweIpcResponse::AweNameResolved {
+                domain,
+                target_hash,
+            } => {
                 assert_eq!(domain, "portal.awe");
                 assert!(!target_hash.is_empty());
             }
@@ -464,10 +478,11 @@ mod tests {
         }
 
         // Send Onion Packet
-        let onion_resp = standalone_node.handle_internal_ipc_request(AweIpcCommand::SendOnionPacket {
-            target_service: "service.awe".into(),
-            payload: b"hello a2p2".to_vec(),
-        });
+        let onion_resp =
+            standalone_node.handle_internal_ipc_request(AweIpcCommand::SendOnionPacket {
+                target_service: "service.awe".into(),
+                payload: b"hello a2p2".to_vec(),
+            });
         match onion_resp {
             AweIpcResponse::OnionPacketRouted { packet_id } => {
                 assert!(packet_id.starts_with("onion-"));
