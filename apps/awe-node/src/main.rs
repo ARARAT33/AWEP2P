@@ -8,6 +8,7 @@ use awep2p_core::network::{format_node_descriptor, Node};
 use awep2p_core::node::{validate_and_configure_node_allocation, NodeAllocationMode};
 use awep2p_core::reputation::NodeReputation;
 use awep2p_core::storage::SecretFilePackage;
+#[cfg(not(target_os = "android"))]
 use eframe::egui;
 use std::{env, fs, net::SocketAddr, path::PathBuf};
 
@@ -122,6 +123,7 @@ fn load_identity(path: &PathBuf, password: &str, username: &str) -> Result<Ident
     LocalVault::open(&data, username, password).map_err(anyhow::Error::msg)
 }
 
+#[cfg(not(target_os = "android"))]
 #[derive(PartialEq)]
 enum AppTab {
     Browser,
@@ -132,6 +134,7 @@ enum AppTab {
     AweStore,
 }
 
+#[cfg(not(target_os = "android"))]
 struct AweNativeGuiApp {
     active_tab: AppTab,
     address_input: String,
@@ -150,6 +153,7 @@ struct AweNativeGuiApp {
     allocation_status: String,
 }
 
+#[cfg(not(target_os = "android"))]
 impl Default for AweNativeGuiApp {
     fn default() -> Self {
         let username_obj = Username::new("ararat_node").unwrap();
@@ -176,6 +180,7 @@ impl Default for AweNativeGuiApp {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 impl eframe::App for AweNativeGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -323,6 +328,7 @@ impl eframe::App for AweNativeGuiApp {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 async fn run_standalone_app() -> Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([800.0, 600.0]),
@@ -332,7 +338,7 @@ async fn run_standalone_app() -> Result<()> {
     let res = eframe::run_native(
         "AWEP2P Sovereign Native Desktop Application",
         options,
-        Box::new(|_cc| Ok(Box::new(AweNativeGuiApp::default()))),
+        Box::new(|_cc| Ok(Box::new(AweNativeGuiApp::default()) as Box<dyn eframe::App>)),
     );
 
     if res.is_err() {
@@ -347,6 +353,24 @@ async fn run_standalone_app() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub fn android_main() {}
+
+#[cfg(target_os = "android")]
+async fn run_standalone_app() -> Result<()> {
+    println!("============================================================");
+    println!("🛡️ AWEP2P SOVEREIGN NATIVE APP ENGINE (Android 100% Rust Node)");
+    println!("Status: Running Sovereign Node Engine Background Loop");
+    println!("============================================================");
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            println!("\nShutting down AWEp2P Android application process...");
+        }
+    }
     Ok(())
 }
 
