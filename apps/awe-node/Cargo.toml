@@ -4,6 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "awe_node"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "awe-node"
+path = "src/main.rs"
+
 [dependencies]
 awep2p-core = { path = "../../core" }
 anyhow.workspace = true
@@ -11,4 +19,6 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 rpassword.workspace = true
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
 eframe = "0.28.1"
