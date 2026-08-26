@@ -337,6 +337,39 @@ pub fn load_manifest(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
     Ok(v)
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SecretFilePackage {
+    pub sfid: String,
+    pub filename: String,
+    pub salt: [u8; 16],
+    pub encrypted_payload: Vec<u8>,
+}
+
+impl SecretFilePackage {
+    pub fn create(filename: &str, plain_data: &[u8], password: &str) -> io::Result<Self> {
+        let mut salt = [0u8; 16];
+        OsRng.fill_bytes(&mut salt);
+        let key = crate::crypto::hash(password.as_bytes(), &salt);
+        let encrypted_payload = encrypt_file(plain_data, &key)?;
+        let sfid = format!(
+            "sfid-{}",
+            &hex::encode(&crate::crypto::hash(b"AWE-SFID", &salt))[..16]
+        );
+
+        Ok(Self {
+            sfid,
+            filename: filename.to_string(),
+            salt,
+            encrypted_payload,
+        })
+    }
+
+    pub fn unlock_and_decrypt(&self, password: &str) -> io::Result<Vec<u8>> {
+        let key = crate::crypto::hash(password.as_bytes(), &self.salt);
+        decrypt_file(&self.encrypted_payload, &key)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -401,5 +434,21 @@ mod tests {
         assert_eq!(s.get(&id).unwrap(), b"hello");
         s.remove(&id).unwrap();
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn secret_file_package_password_unlock() {
+        let plain = b"Sovereign AWE Drive Secret File Data";
+        let pwd = "SuperSecretPassword123";
+
+        let sf_package = SecretFilePackage::create("secret_doc.pdf", plain, pwd).unwrap();
+        assert!(sf_package.sfid.starts_with("sfid-"));
+
+        // Correct password unlocks
+        let decrypted = sf_package.unlock_and_decrypt(pwd).unwrap();
+        assert_eq!(decrypted, plain);
+
+        // Wrong password fails
+        assert!(sf_package.unlock_and_decrypt("WrongPassword").is_err());
     }
 }

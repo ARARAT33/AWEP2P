@@ -151,6 +151,59 @@ pub fn get_available_disk_space(path: &Path) -> io::Result<u64> {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum NodeAllocationMode {
+    FolderAllocation { folder_path: String },
+    WholeNonSystemDisksAllocation { allocated_disks: Vec<String> },
+}
+
+pub fn validate_and_configure_node_allocation(
+    mode: &NodeAllocationMode,
+) -> Result<HardwareAllocation, String> {
+    match mode {
+        NodeAllocationMode::FolderAllocation { folder_path } => {
+            if folder_path.is_empty() {
+                return Err("Folder path cannot be empty".into());
+            }
+            Ok(HardwareAllocation {
+                gpu_vram_mb: 1024,
+                tpu_units: 0,
+                vcpu_cores: 2,
+                ram_mb: 2048,
+                ssd_gb: 20,
+                hdd_gb: 0,
+            })
+        }
+        NodeAllocationMode::WholeNonSystemDisksAllocation { allocated_disks } => {
+            for disk in allocated_disks {
+                let lower = disk.to_lowercase();
+                if lower == "c:"
+                    || lower == "c:\\"
+                    || lower == "/"
+                    || lower == "/boot"
+                    || lower == "/sys"
+                {
+                    return Err(format!(
+                        "System disk ({}) allocation is prohibited! Choose a non-system disk.",
+                        disk
+                    ));
+                }
+            }
+            if allocated_disks.is_empty() {
+                return Err("No non-system disks selected for full allocation mode".into());
+            }
+            Ok(HardwareAllocation {
+                gpu_vram_mb: 16384,
+                tpu_units: 2,
+                vcpu_cores: 16,
+                ram_mb: 65536,
+                ssd_gb: 2000,
+                hdd_gb: 8000,
+            })
+        }
+    }
+}
+
 pub fn configure_node_storage(
     identity: &Identity,
     storage_path: &Path,
@@ -358,6 +411,29 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         let space = get_available_disk_space(&temp_dir).unwrap();
         assert!(space > 0);
+    }
+
+    #[test]
+    fn test_node_allocation_modes_and_system_disk_protection() {
+        // Folder allocation
+        let folder_mode = NodeAllocationMode::FolderAllocation {
+            folder_path: "/var/awe_data".into(),
+        };
+        let hw_light = validate_and_configure_node_allocation(&folder_mode).unwrap();
+        assert_eq!(hw_light.vcpu_cores, 2);
+
+        // Whole non-system disks allocation
+        let disk_mode = NodeAllocationMode::WholeNonSystemDisksAllocation {
+            allocated_disks: vec!["D:\\".into(), "E:\\".into()],
+        };
+        let hw_full = validate_and_configure_node_allocation(&disk_mode).unwrap();
+        assert_eq!(hw_full.vcpu_cores, 16);
+
+        // System disk allocation attempt is prohibited
+        let system_disk_attempt = NodeAllocationMode::WholeNonSystemDisksAllocation {
+            allocated_disks: vec!["C:\\".into()],
+        };
+        assert!(validate_and_configure_node_allocation(&system_disk_attempt).is_err());
     }
 
     #[test]
