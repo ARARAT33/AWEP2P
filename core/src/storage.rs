@@ -353,7 +353,7 @@ impl SecretFilePackage {
         let encrypted_payload = encrypt_file(plain_data, &key)?;
         let sfid = format!(
             "sfid-{}",
-            &hex::encode(&crate::crypto::hash(b"AWE-SFID", &salt))[..16]
+            &hex::encode(crate::crypto::hash(b"AWE-SFID", &salt))[..16]
         );
 
         Ok(Self {

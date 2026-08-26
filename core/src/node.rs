@@ -91,6 +91,7 @@ impl NetworkCapacityMetrics {
     }
 }
 
+#[allow(clippy::unnecessary_cast)]
 pub fn get_available_disk_space(path: &Path) -> io::Result<u64> {
     let target_path = if path.exists() {
         path.to_path_buf()
