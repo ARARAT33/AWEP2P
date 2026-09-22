@@ -1,3 +1,4 @@
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -77,6 +78,13 @@ impl Registry {
         self.records.insert(record.name.clone(), record);
         Ok(())
     }
+    pub fn insert_verified(&mut self, record: RegistryRecord) -> Result<(), &'static str> {
+        if !record.verify_signature() {
+            return Err("invalid registry record signature");
+        }
+        self.insert(record)
+    }
+
     pub fn resolve(&self, name: &str) -> Option<&RegistryRecord> {
         self.records.get(name)
     }
