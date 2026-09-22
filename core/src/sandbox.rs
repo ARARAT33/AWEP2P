@@ -1,7 +1,7 @@
 //! Capability-bounded WASM sandbox runner.
 //! Enforces declared application capabilities and execution limits.
 
-use crate::permissions::{Capability, CapabilitySet};
+use crate::permissions::CapabilitySet;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -59,7 +59,7 @@ mod tests {
     #[test]
     fn sandbox_execution_rules() {
         let mut caps = CapabilitySet::default();
-        caps.grant(Capability::StorageRead);
+        caps.grant(crate::permissions::Capability::StorageRead);
         let sandbox = WasmSandbox::new(SandboxConfig::default(), caps);
 
         let valid_wasm = b"\0asm\x01\0\0\0";
