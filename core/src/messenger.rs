@@ -5,9 +5,9 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305, Key, Nonce,
 };
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use hkdf::Hkdf;
 use rand_core::{OsRng, RngCore};
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::collections::BTreeMap;
