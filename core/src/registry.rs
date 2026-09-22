@@ -105,7 +105,6 @@ pub fn valid_name(name: &str) -> bool {
         })
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
