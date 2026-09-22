@@ -149,10 +149,9 @@ mod tests {
             signature: Vec::new(),
         };
         record.content_hash = record.calculate_content_hash();
-        record.signature =
-            ed25519_dalek::Signer::sign(&signing, &record.signable_bytes())
-                .to_bytes()
-                .to_vec();
+        record.signature = ed25519_dalek::Signer::sign(&signing, &record.signable_bytes())
+            .to_bytes()
+            .to_vec();
         assert!(record.verify_signature());
         record.name = "evil.awe".into();
         assert!(!record.verify_signature());
