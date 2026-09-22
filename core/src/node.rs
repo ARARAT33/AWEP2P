@@ -336,10 +336,8 @@ pub enum AweIpcCommand {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AweIpcResponse {
     Status(NodeInfo),
-    AweNameResolved { domain: String, target_hash: String },
-    OnionPacketRouted { packet_id: String },
+    AweNameLookupKey { domain: String, lookup_key: String },
     RelayStatus(ProofOfRelayTracker),
-    WasmExecutionResult { exit_code: i32, output: Vec<u8> },
     Error(String),
 }
 
@@ -544,28 +542,20 @@ mod tests {
                 domain: "portal.awe".into(),
             });
         match name_resp {
-            AweIpcResponse::AweNameResolved {
-                domain,
-                target_hash,
-            } => {
+            AweIpcResponse::AweNameLookupKey { domain, lookup_key } => {
                 assert_eq!(domain, "portal.awe");
-                assert!(!target_hash.is_empty());
+                assert!(!lookup_key.is_empty());
             }
             _ => panic!("Expected AweNameResolved response"),
         }
 
-        // Send Onion Packet
+        // Standalone IPC must not claim delivery without a live transport.
         let onion_resp =
             standalone_node.handle_internal_ipc_request(AweIpcCommand::SendOnionPacket {
                 target_service: "service.awe".into(),
                 payload: b"hello a2p2".to_vec(),
             });
-        match onion_resp {
-            AweIpcResponse::OnionPacketRouted { packet_id } => {
-                assert!(packet_id.starts_with("onion-"));
-            }
-            _ => panic!("Expected OnionPacketRouted response"),
-        }
+        assert!(matches!(onion_resp, AweIpcResponse::Error(_)));
 
         // Secure browser config fingerprinting flags
         assert!(standalone_node.browser_config.canvas_fingerprint_spoofed);
