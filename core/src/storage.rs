@@ -433,7 +433,11 @@ mod tests {
         let mut map = map;
         map.assign_replicas(
             0,
-            vec!["nid-real-a".into(), "nid-real-b".into(), "nid-real-c".into()],
+            vec![
+                "nid-real-a".into(),
+                "nid-real-b".into(),
+                "nid-real-c".into(),
+            ],
         )
         .unwrap();
         assert_eq!(map.shard_nodes[0].len(), 3);
