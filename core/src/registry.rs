@@ -1,3 +1,4 @@
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -48,11 +49,43 @@ impl RegistryRecord {
     pub fn canonical_bytes(&self) -> Vec<u8> {
         serde_json::to_vec(self).expect("registry record serialization must be infallible")
     }
+
+    pub fn signable_bytes(&self) -> Vec<u8> {
+        let mut unsigned = self.clone();
+        unsigned.signature.clear();
+        serde_json::to_vec(&unsigned).expect("registry record serialization must be infallible")
+    }
+
+    fn hashable_bytes(&self) -> Vec<u8> {
+        let mut unsigned = self.clone();
+        unsigned.content_hash = [0u8; 32];
+        unsigned.signature.clear();
+        serde_json::to_vec(&unsigned).expect("registry record serialization must be infallible")
+    }
+
     pub fn calculate_content_hash(&self) -> [u8; 32] {
         let mut h = Sha256::new();
         h.update(b"AWE-REGISTRY-V1\0");
-        h.update(self.canonical_bytes());
+        h.update(self.hashable_bytes());
         h.finalize().into()
+    }
+
+    pub fn verify_signature(&self) -> bool {
+        let public_key = match <[u8; 32]>::try_from(self.owner_public_key.as_slice()) {
+            Ok(key) => key,
+            Err(_) => return false,
+        };
+        let signature = match Signature::from_slice(&self.signature) {
+            Ok(sig) => sig,
+            Err(_) => return false,
+        };
+        let key = match VerifyingKey::from_bytes(&public_key) {
+            Ok(key) => key,
+            Err(_) => return false,
+        };
+
+        self.content_hash == self.calculate_content_hash()
+            && key.verify(&self.signable_bytes(), &signature).is_ok()
     }
 }
 
@@ -77,6 +110,13 @@ impl Registry {
         self.records.insert(record.name.clone(), record);
         Ok(())
     }
+    pub fn insert_verified(&mut self, record: RegistryRecord) -> Result<(), &'static str> {
+        if !record.verify_signature() {
+            return Err("invalid registry record signature");
+        }
+        self.insert(record)
+    }
+
     pub fn resolve(&self, name: &str) -> Option<&RegistryRecord> {
         self.records.get(name)
     }
@@ -95,4 +135,57 @@ pub fn valid_name(name: &str) -> bool {
                 && !label.ends_with('-')
                 && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn signed_record_roundtrip() {
+        let signing = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
+        let mut record = RegistryRecord {
+            object_type: RegistryObjectType::Domain,
+            kind: None,
+            name: "portal.awe".into(),
+            owner_public_key: signing.verifying_key().to_bytes().to_vec(),
+            parent: Some("awe".into()),
+            status: RegistryStatus::Active,
+            sequence: 1,
+            content_hash: [0u8; 32],
+            signature: Vec::new(),
+        };
+        record.content_hash = record.calculate_content_hash();
+        record.signature = ed25519_dalek::Signer::sign(&signing, &record.signable_bytes())
+            .to_bytes()
+            .to_vec();
+
+        assert!(record.verify_signature());
+        let mut registry = Registry::default();
+        assert!(registry.insert_verified(record.clone()).is_ok());
+        assert_eq!(registry.resolve("portal.awe"), Some(&record));
+    }
+
+    #[test]
+    fn tampering_breaks_signature() {
+        let signing = ed25519_dalek::SigningKey::from_bytes(&[8u8; 32]);
+        let mut record = RegistryRecord {
+            object_type: RegistryObjectType::Domain,
+            kind: None,
+            name: "site.awe".into(),
+            owner_public_key: signing.verifying_key().to_bytes().to_vec(),
+            parent: Some("awe".into()),
+            status: RegistryStatus::Active,
+            sequence: 1,
+            content_hash: [0u8; 32],
+            signature: Vec::new(),
+        };
+        record.content_hash = record.calculate_content_hash();
+        record.signature = ed25519_dalek::Signer::sign(&signing, &record.signable_bytes())
+            .to_bytes()
+            .to_vec();
+        assert!(record.verify_signature());
+        record.name = "evil.awe".into();
+        assert!(!record.verify_signature());
+    }
 }

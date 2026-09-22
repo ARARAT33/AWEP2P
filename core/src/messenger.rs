@@ -5,6 +5,7 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305, Key, Nonce,
 };
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use hkdf::Hkdf;
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -202,16 +203,34 @@ pub struct Channel {
     pub chid: String,
     pub title: String,
     pub owner: [u8; 32],
+    pub owner_public_key: [u8; 32],
     pub subscribers: Vec<[u8; 32]>,
 }
 
 impl Channel {
+    /// Verify an actual Ed25519 signature over a channel-scoped message.
+    /// The signature is bound to the channel ID so it cannot be replayed on
+    /// another channel.
     pub fn verify_channel_broadcast(&self, message: &[u8], signature: &[u8]) -> bool {
-        if message.is_empty() || signature.is_empty() {
+        let Ok(signature) = Signature::from_slice(signature) else {
             return false;
-        }
-        // Cryptographic integrity check matching channel owner
-        !self.owner.iter().all(|&b| b == 0) && signature.len() >= 16
+        };
+        let Ok(key) = VerifyingKey::from_bytes(&self.owner_public_key) else {
+            return false;
+        };
+        let mut signed = Vec::with_capacity(16 + self.id.len() + message.len());
+        signed.extend_from_slice(b"AWE-CHANNEL/v1");
+        signed.extend_from_slice(&self.id);
+        signed.extend_from_slice(message);
+        key.verify(&signed, &signature).is_ok()
+    }
+
+    pub fn broadcast_signing_bytes(&self, message: &[u8]) -> Vec<u8> {
+        let mut signed = Vec::with_capacity(16 + self.id.len() + message.len());
+        signed.extend_from_slice(b"AWE-CHANNEL/v1");
+        signed.extend_from_slice(&self.id);
+        signed.extend_from_slice(message);
+        signed
     }
 }
 
@@ -337,9 +356,17 @@ mod tests {
             chid: chid.clone(),
             title: "Announcements Channel".into(),
             owner: dummy,
+            owner_public_key: ed25519_dalek::SigningKey::from_bytes(&[7u8; 32])
+                .verifying_key()
+                .to_bytes(),
             subscribers: vec![dummy],
         };
         assert_eq!(ch.chid, chid);
+        let message = b"channel announcement";
+        let signing = ed25519_dalek::SigningKey::from_bytes(&[7u8; 32]);
+        let signature = ed25519_dalek::Signer::sign(&signing, &ch.broadcast_signing_bytes(message));
+        assert!(ch.verify_channel_broadcast(message, signature.to_bytes().as_ref()));
+        assert!(!ch.verify_channel_broadcast(b"tampered", signature.to_bytes().as_ref()));
 
         let sf = SecretFile {
             id: dummy,

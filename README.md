@@ -268,3 +268,12 @@ The project should be implemented in dependency order rather than attempting eve
 ## License
 
 License and contribution policy will be defined before the first public protocol release.
+
+
+## Engineering status
+
+AWEP2P currently has a real Rust foundation for identity, authenticated peer handshakes, encrypted transport, replay protection, content-addressed local storage, Reed-Solomon erasure coding, signed-message primitives, namespace records and platform boundaries.
+
+Some higher-level replacement layers are still under active implementation. A fully distributed storage network, production DHT persistence, NAT traversal, a real WASM execution runtime, native site publication over the live mesh, and complete end-user collaboration applications are not treated as finished until they are backed by executable implementations and integration tests.
+
+The project follows the engineering charter in docs/AWEP2P-ENGINEERING-CHARTER.md: no fabricated topology, no fake success responses, explicit threat modeling, minimized user data, and CI-gated changes to main.

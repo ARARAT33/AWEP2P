@@ -20,7 +20,7 @@ on:
       - '.github/workflows/core.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   rust:
@@ -37,21 +37,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Apply rustfmt fixes
-        run: cargo fmt --all
-      - name: Persist rustfmt fixes on repair branch
-        if: github.event_name == 'push' && github.ref == 'refs/heads/fix/ci-rustfmt-ebc151f' && matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- core apps platforms
-          if git diff --cached --quiet; then
-            echo 'No rustfmt changes to persist.'
-            exit 0
-          fi
-          git commit -m 'chore: apply rustfmt to AWEp2P Rust sources'
-          git push origin HEAD:${GITHUB_REF_NAME}
       - run: cargo fmt --all -- --check
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
@@ -67,7 +52,7 @@ jobs:
       - name: Reject unfinished markers
         shell: bash
         run: |
-          if grep -RInE 'TODO|FIXME|IMPLEMENT_ME|UNIMPLEMENTED|fake implementation|mock networking' core apps platforms --exclude-dir=target; then
+          if grep -RInE 'TODO|FIXME|IMPLEMENT_ME|UNIMPLEMENTED|fake implementation|mock networking|WASM Executed Successfully|signature\.len\(\) >= 16|target_service: _|ND-[0-9A-F]{4}-1000' core apps platforms --exclude-dir=target; then
             echo 'Unfinished implementation marker found.'
             exit 1
           fi

@@ -74,22 +74,39 @@ pub struct AsMap {
 impl AsMap {
     pub fn new(file_id: [u8; 32], filename: String, site_id: Option<String>) -> Self {
         let policy = StoragePolicy::hyper_sovereign();
-        let mut shard_nodes = Vec::with_capacity(1000);
-        for i in 0..1000 {
-            let n1 = format!("ND-{:04X}-1000-0001-{:04X}", i, (i * 7) % 65535);
-            let n2 = format!("ND-{:04X}-2000-0002-{:04X}", i, (i * 13) % 65535);
-            let n3 = format!("ND-{:04X}-3000-0003-{:04X}", i, (i * 19) % 65535);
-            shard_nodes.push(vec![n1, n2, n3]);
-        }
         Self {
             file_id,
             site_id,
             filename,
-            total_shards: 1000,
+            total_shards: policy.data_shards + policy.parity_shards,
             data_shards: policy.data_shards,
             parity_shards: policy.parity_shards,
-            shard_nodes,
+            // Placement is intentionally empty until actual peer IDs are selected.
+            // Fabricated node IDs would make a local manifest look distributed without
+            // corresponding real replicas on the network.
+            shard_nodes: vec![Vec::new(); policy.data_shards + policy.parity_shards],
         }
+    }
+
+    pub fn assign_replicas(
+        &mut self,
+        shard_index: usize,
+        node_ids: Vec<String>,
+    ) -> Result<(), String> {
+        if shard_index >= self.total_shards {
+            return Err("shard index out of range".into());
+        }
+        if node_ids.len() != 3 {
+            return Err("exactly three replica nodes are required".into());
+        }
+        let mut unique = node_ids;
+        unique.sort();
+        unique.dedup();
+        if unique.len() != 3 || unique.iter().any(|id| id.is_empty()) {
+            return Err("replica node IDs must be three distinct non-empty IDs".into());
+        }
+        self.shard_nodes[shard_index] = unique;
+        Ok(())
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
@@ -411,7 +428,20 @@ mod tests {
         );
         assert_eq!(map.total_shards, 1000);
         assert_eq!(map.shard_nodes.len(), 1000);
+        assert!(map.shard_nodes.iter().all(|replicas| replicas.is_empty()));
+
+        let mut map = map;
+        map.assign_replicas(
+            0,
+            vec![
+                "nid-real-a".into(),
+                "nid-real-b".into(),
+                "nid-real-c".into(),
+            ],
+        )
+        .unwrap();
         assert_eq!(map.shard_nodes[0].len(), 3);
+        assert!(map.assign_replicas(0, vec!["nid-real-a".into()]).is_err());
         let bytes = map.to_bytes().unwrap();
         let loaded = AsMap::from_bytes(&bytes).unwrap();
         assert_eq!(loaded.filename, "test.txt");

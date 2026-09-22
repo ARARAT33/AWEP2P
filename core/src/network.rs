@@ -620,6 +620,16 @@ impl Node {
             let Ok(mut c) = self.connect(a).await else {
                 continue;
             };
+            let remote = PeerRecord {
+                awe_id: c.remote_id,
+                public_key: c.remote_public_key,
+                addresses: vec![a],
+                protocol_version: VERSION,
+                last_seen_unix: now(),
+            };
+            self.routing.write().await.insert(remote.clone());
+            self.peers.write().await.insert(remote.awe_id, remote);
+
             c.send(&Control::FindNode {
                 target: *self.identity.public.awe_id.as_bytes(),
             })
@@ -639,6 +649,69 @@ impl Node {
         }
         Ok(found)
     }
+    /// Iteratively query discovered peers for closer peers instead of relying on
+    /// a single bootstrap response. This is the lookup phase of a Kademlia-style DHT.
+    pub async fn find_nodes_iterative(
+        &self,
+        target: &[u8; 32],
+        alpha: usize,
+        max_rounds: usize,
+    ) -> Result<Vec<PeerRecord>, NetworkError> {
+        let alpha = alpha.clamp(1, 8);
+        let max_rounds = max_rounds.clamp(1, 16);
+        let mut queried = BTreeMap::<[u8; 32], bool>::new();
+
+        for _ in 0..max_rounds {
+            let candidates = self.closest_peers(target, alpha.saturating_mul(4)).await;
+            let batch = candidates
+                .into_iter()
+                .filter(|peer| !queried.contains_key(&peer.awe_id) && !peer.addresses.is_empty())
+                .take(alpha)
+                .collect::<Vec<_>>();
+
+            if batch.is_empty() {
+                break;
+            }
+
+            let mut discovered = false;
+            for peer in batch {
+                queried.insert(peer.awe_id, true);
+
+                for address in peer.addresses.iter().copied() {
+                    let Ok(mut connection) = self.connect(address).await else {
+                        continue;
+                    };
+
+                    connection
+                        .send(&Control::FindNode { target: *target })
+                        .await?;
+
+                    let Ok(Control::Nodes { records }) = connection.recv().await else {
+                        continue;
+                    };
+
+                    for record in records {
+                        if record.awe_id == *self.identity.public.awe_id.as_bytes() {
+                            continue;
+                        }
+                        if !self.peers.read().await.contains_key(&record.awe_id) {
+                            discovered = true;
+                        }
+                        self.routing.write().await.insert(record.clone());
+                        self.peers.write().await.insert(record.awe_id, record);
+                    }
+                    break;
+                }
+            }
+
+            if !discovered {
+                break;
+            }
+        }
+
+        Ok(self.closest_peers(target, alpha.saturating_mul(8)).await)
+    }
+
     pub async fn peers(&self) -> Vec<PeerRecord> {
         self.peers.read().await.values().cloned().collect()
     }
