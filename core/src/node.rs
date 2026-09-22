@@ -365,35 +365,31 @@ impl StandaloneAweNode {
                 if !domain.ends_with(".awe") {
                     return AweIpcResponse::Error("Domain must end with .awe".into());
                 }
-                let target_hash = crate::crypto::hash(b"AWE-NAME-RESOLVE", domain.as_bytes());
-                AweIpcResponse::AweNameResolved {
+                let lookup_key = crate::crypto::hash(b"AWE-NAME-LOOKUP/v1", domain.as_bytes());
+                AweIpcResponse::AweNameLookupKey {
                     domain,
-                    target_hash: hex::encode(target_hash),
+                    lookup_key: hex::encode(lookup_key),
                 }
             }
             AweIpcCommand::CheckRelayContribution => {
                 AweIpcResponse::RelayStatus(self.relay_tracker.clone())
             }
-            AweIpcCommand::SendOnionPacket {
-                target_service: _,
-                payload,
-            } => {
-                if let Err(e) = self.relay_tracker.consume(payload.len() as u64) {
-                    return AweIpcResponse::Error(e);
-                }
-                let pid = hex::encode(&crate::crypto::hash(b"ONION-ID", &payload)[..8]);
-                AweIpcResponse::OnionPacketRouted {
-                    packet_id: format!("onion-{}", pid),
-                }
-            }
+            AweIpcCommand::SendOnionPacket { .. } => AweIpcResponse::Error(
+                "onion routing requires a live peer transport; standalone IPC does not fake delivery"
+                    .into(),
+            ),
             AweIpcCommand::ExecuteWasmCompute { script_wasm } => {
-                if script_wasm.is_empty() {
-                    return AweIpcResponse::Error("Empty WASM binary".into());
-                }
-                // Executed in local sandbox
-                AweIpcResponse::WasmExecutionResult {
-                    exit_code: 0,
-                    output: b"WASM Executed Successfully".to_vec(),
+                let mut caps = crate::permissions::CapabilitySet::default();
+                caps.grant(crate::permissions::Capability::StorageRead);
+                let sandbox = crate::sandbox::WasmSandbox::new(
+                    crate::sandbox::SandboxConfig::default(),
+                    caps,
+                );
+                match sandbox.validate_module(&script_wasm) {
+                    Ok(()) => AweIpcResponse::Error(
+                        "WASM validated but no execution backend is linked".into(),
+                    ),
+                    Err(e) => AweIpcResponse::Error(e.into()),
                 }
             }
         }
