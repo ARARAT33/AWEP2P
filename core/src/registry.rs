@@ -104,3 +104,59 @@ pub fn valid_name(name: &str) -> bool {
                 && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
         })
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn signed_record_roundtrip() {
+        let signing = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
+        let mut record = RegistryRecord {
+            object_type: RegistryObjectType::Domain,
+            kind: None,
+            name: "portal.awe".into(),
+            owner_public_key: signing.verifying_key().to_bytes().to_vec(),
+            parent: Some("awe".into()),
+            status: RegistryStatus::Active,
+            sequence: 1,
+            content_hash: [0u8; 32],
+            signature: Vec::new(),
+        };
+        record.content_hash = record.calculate_content_hash();
+        record.signature =
+            ed25519_dalek::Signer::sign(&signing, &record.signable_bytes())
+                .to_bytes()
+                .to_vec();
+
+        assert!(record.verify_signature());
+        let mut registry = Registry::default();
+        assert!(registry.insert_verified(record.clone()).is_ok());
+        assert_eq!(registry.resolve("portal.awe"), Some(&record));
+    }
+
+    #[test]
+    fn tampering_breaks_signature() {
+        let signing = ed25519_dalek::SigningKey::from_bytes(&[8u8; 32]);
+        let mut record = RegistryRecord {
+            object_type: RegistryObjectType::Domain,
+            kind: None,
+            name: "site.awe".into(),
+            owner_public_key: signing.verifying_key().to_bytes().to_vec(),
+            parent: Some("awe".into()),
+            status: RegistryStatus::Active,
+            sequence: 1,
+            content_hash: [0u8; 32],
+            signature: Vec::new(),
+        };
+        record.content_hash = record.calculate_content_hash();
+        record.signature =
+            ed25519_dalek::Signer::sign(&signing, &record.signable_bytes())
+                .to_bytes()
+                .to_vec();
+        assert!(record.verify_signature());
+        record.name = "evil.awe".into();
+        assert!(!record.verify_signature());
+    }
+}
