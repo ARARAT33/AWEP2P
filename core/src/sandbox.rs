@@ -32,7 +32,7 @@ impl WasmSandbox {
         }
     }
 
-    pub fn execute_module(&self, wasm_bytes: &[u8]) -> Result<Vec<u8>, &'static str> {
+    pub fn validate_module(&self, wasm_bytes: &[u8]) -> Result<(), &'static str> {
         if wasm_bytes.len() < 8 || &wasm_bytes[..4] != b"\0asm" {
             return Err("invalid WebAssembly binary header");
         }
@@ -41,20 +41,14 @@ impl WasmSandbox {
             return Err("WASM module exceeds memory quota");
         }
 
-        // Validate basic safety constraints
-        crate::store::validate_wasm(wasm_bytes)?;
+        crate::store::validate_wasm(wasm_bytes)
+    }
 
-        // Output proof of sandbox execution with capability enforcement
-        let mut output = Vec::new();
-        output.extend_from_slice(b"WASM_SANDBOX_EXEC_SUCCESS:");
-        if self.capabilities.allows(&Capability::StorageRead) {
-            output.extend_from_slice(b"[CAP:StorageRead]");
-        }
-        if self.capabilities.allows(&Capability::NetworkConnect) {
-            output.extend_from_slice(b"[CAP:NetworkConnect]");
-        }
-
-        Ok(output)
+    pub fn execute_module(&self, wasm_bytes: &[u8]) -> Result<Vec<u8>, &'static str> {
+        self.validate_module(wasm_bytes)?;
+        let _ = &self.capabilities;
+        let _instruction_limit = self.config.max_instruction_count;
+        Err("WASM execution backend is not linked; module validation succeeded")
     }
 }
 
