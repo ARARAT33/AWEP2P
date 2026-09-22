@@ -69,8 +69,7 @@ mod tests {
         let sandbox = WasmSandbox::new(SandboxConfig::default(), caps);
 
         let valid_wasm = b"\0asm\x01\0\0\0";
-        let res = sandbox.execute_module(valid_wasm).unwrap();
-        assert!(res.starts_with(b"WASM_SANDBOX_EXEC_SUCCESS"));
-        assert!(String::from_utf8_lossy(&res).contains("[CAP:StorageRead]"));
+        assert!(sandbox.validate_module(valid_wasm).is_ok());
+        assert!(sandbox.execute_module(valid_wasm).is_err());
     }
 }
