@@ -362,10 +362,7 @@ mod tests {
         assert_eq!(ch.chid, chid);
         let message = b"channel announcement";
         let signing = ed25519_dalek::SigningKey::from_bytes(&[7u8; 32]);
-        let signature = ed25519_dalek::Signer::sign(
-            &signing,
-            &ch.broadcast_signing_bytes(message),
-        );
+        let signature = ed25519_dalek::Signer::sign(&signing, &ch.broadcast_signing_bytes(message));
         assert!(ch.verify_channel_broadcast(message, signature.to_bytes().as_ref()));
         assert!(!ch.verify_channel_broadcast(b"tampered", signature.to_bytes().as_ref()));
 
