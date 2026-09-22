@@ -49,11 +49,36 @@ impl RegistryRecord {
     pub fn canonical_bytes(&self) -> Vec<u8> {
         serde_json::to_vec(self).expect("registry record serialization must be infallible")
     }
+
+    pub fn signable_bytes(&self) -> Vec<u8> {
+        let mut unsigned = self.clone();
+        unsigned.signature.clear();
+        serde_json::to_vec(&unsigned).expect("registry record serialization must be infallible")
+    }
+
     pub fn calculate_content_hash(&self) -> [u8; 32] {
         let mut h = Sha256::new();
         h.update(b"AWE-REGISTRY-V1\0");
-        h.update(self.canonical_bytes());
+        h.update(self.signable_bytes());
         h.finalize().into()
+    }
+
+    pub fn verify_signature(&self) -> bool {
+        let public_key = match <[u8; 32]>::try_from(self.owner_public_key.as_slice()) {
+            Ok(key) => key,
+            Err(_) => return false,
+        };
+        let signature = match Signature::from_slice(&self.signature) {
+            Ok(sig) => sig,
+            Err(_) => return false,
+        };
+        let key = match VerifyingKey::from_bytes(&public_key) {
+            Ok(key) => key,
+            Err(_) => return false,
+        };
+
+        self.content_hash == self.calculate_content_hash()
+            && key.verify(&self.signable_bytes(), &signature).is_ok()
     }
 }
 
