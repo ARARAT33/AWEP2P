@@ -56,10 +56,17 @@ impl RegistryRecord {
         serde_json::to_vec(&unsigned).expect("registry record serialization must be infallible")
     }
 
+    fn hashable_bytes(&self) -> Vec<u8> {
+        let mut unsigned = self.clone();
+        unsigned.content_hash = [0u8; 32];
+        unsigned.signature.clear();
+        serde_json::to_vec(&unsigned).expect("registry record serialization must be infallible")
+    }
+
     pub fn calculate_content_hash(&self) -> [u8; 32] {
         let mut h = Sha256::new();
         h.update(b"AWE-REGISTRY-V1\0");
-        h.update(self.signable_bytes());
+        h.update(self.hashable_bytes());
         h.finalize().into()
     }
 
