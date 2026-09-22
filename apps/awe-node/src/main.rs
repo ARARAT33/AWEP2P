@@ -99,21 +99,15 @@ fn init(username: &str, path: PathBuf) -> Result<()> {
     }
     fs::write(&path, vault).context("failed to write identity vault")?;
 
-    // Also write .awesecret file
-    let secret = AweSecret::generate(&identity);
-    let secret_path = path.with_extension("awesecret");
-    let secret_bytes = secret
-        .to_bytes()
-        .context("failed to serialize .awesecret")?;
-    fs::write(&secret_path, secret_bytes).context("failed to write .awesecret file")?;
-
+    // The encrypted vault is the default persisted credential.
+    // Plaintext .awesecret export remains an explicit command only.
     println!("AWE-ID: {}", identity.public.awe_id.to_hex());
     println!(
         "Node Descriptor: {}",
         format_node_descriptor(identity.public.awe_id.as_bytes())
     );
     println!("Identity vault: {}", path.display());
-    println!(".awesecret key: {}", secret_path.display());
+    println!(".awesecret export: use 'awe-node secret <username> [out-file]' explicitly");
     Ok(())
 }
 
