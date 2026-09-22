@@ -662,14 +662,10 @@ impl Node {
         let mut queried = BTreeMap::<[u8; 32], bool>::new();
 
         for _ in 0..max_rounds {
-            let candidates = self
-                .closest_peers(target, alpha.saturating_mul(4))
-                .await;
+            let candidates = self.closest_peers(target, alpha.saturating_mul(4)).await;
             let batch = candidates
                 .into_iter()
-                .filter(|peer| {
-                    !queried.contains_key(&peer.awe_id) && !peer.addresses.is_empty()
-                })
+                .filter(|peer| !queried.contains_key(&peer.awe_id) && !peer.addresses.is_empty())
                 .take(alpha)
                 .collect::<Vec<_>>();
 
