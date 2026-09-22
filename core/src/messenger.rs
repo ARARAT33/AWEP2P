@@ -356,7 +356,9 @@ mod tests {
             chid: chid.clone(),
             title: "Announcements Channel".into(),
             owner: dummy,
-            owner_public_key: [7u8; 32],
+            owner_public_key: ed25519_dalek::SigningKey::from_bytes(&[7u8; 32])
+                .verifying_key()
+                .to_bytes(),
             subscribers: vec![dummy],
         };
         assert_eq!(ch.chid, chid);
