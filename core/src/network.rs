@@ -620,6 +620,16 @@ impl Node {
             let Ok(mut c) = self.connect(a).await else {
                 continue;
             };
+            let remote = PeerRecord {
+                awe_id: c.remote_id,
+                public_key: c.remote_public_key,
+                addresses: vec![a],
+                protocol_version: VERSION,
+                last_seen_unix: now(),
+            };
+            self.routing.write().await.insert(remote.clone());
+            self.peers.write().await.insert(remote.awe_id, remote);
+
             c.send(&Control::FindNode {
                 target: *self.identity.public.awe_id.as_bytes(),
             })
