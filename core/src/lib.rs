@@ -21,5 +21,6 @@ pub mod registry;
 pub mod replay;
 pub mod reputation;
 pub mod sandbox;
+pub mod secure_state;
 pub mod storage;
 pub mod store;
