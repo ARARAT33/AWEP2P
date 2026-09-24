@@ -27,6 +27,7 @@ blake3.workspace = true
 hkdf.workspace = true
 x25519-dalek.workspace = true
 tokio.workspace = true
+getrandom = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { workspace = true }
