@@ -40,6 +40,23 @@ impl StoragePolicy {
         }
     }
 
+    pub fn total_shards(&self) -> usize {
+        self.data_shards + self.parity_shards
+    }
+
+    /// Scale shard count to file size while preserving the 1000-shard ceiling
+    /// used by the full-size network policy. Small files stay cheap instead of
+    /// paying the CPU/network cost of thousands of mostly empty shards.
+    pub fn for_file_size(bytes: usize) -> Self {
+        let total = if bytes == 0 {
+            12
+        } else {
+            let chunk_groups = bytes.saturating_add(4 * 1024 * 1024 - 1) / (4 * 1024 * 1024);
+            (chunk_groups.saturating_mul(12)).clamp(12, 1000)
+        };
+        Self::custom_scaled(total)
+    }
+
     pub fn custom_scaled(total_shards: usize) -> Self {
         let total = total_shards.clamp(12, 100_000_000);
         let data = (total as f64 * 0.45) as usize;
@@ -55,12 +72,7 @@ impl StoragePolicy {
 
 impl Default for StoragePolicy {
     fn default() -> Self {
-        Self {
-            data_shards: 8,
-            parity_shards: 4,
-            max_chunk_size: 4 * 1024 * 1024,
-            replica_count: 3,
-        }
+        Self::custom_scaled(12)
     }
 }
 

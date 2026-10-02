@@ -1,12 +1,23 @@
-name: Auto Format Rust
+name: Rust Format Check
 
 on:
   push:
     branches: [main]
+    paths:
+      - '**/*.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/format.yml'
+  pull_request:
+    paths:
+      - '**/*.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/format.yml'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   rustfmt:
@@ -16,16 +27,5 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Format Rust workspace
-        run: cargo fmt --all
-      - name: Commit formatting changes
-        run: |
-          if git diff --quiet; then
-            echo "Rust formatting is already clean."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- '*.rs'
-          git commit -m "style: format Rust workspace"
-          git push
+      - name: Check Rust workspace formatting
+        run: cargo fmt --all -- --check

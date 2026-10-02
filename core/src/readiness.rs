@@ -1,8 +1,8 @@
 //! Production-readiness model for the AWE Net implementation.
 //!
-//! This is deliberately a checklist rather than a claim that external network
-//! experiments have already passed. Real Internet/LAN validation remains an
-//! operator-run activity.
+//! This is a code-readiness model. External Internet/NAT and clean-machine
+//! validation are separate release evidence and are never counted as passing
+//! merely because source modules exist.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ReadinessItem {

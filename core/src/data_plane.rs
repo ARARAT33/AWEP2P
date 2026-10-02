@@ -9,6 +9,7 @@ pub struct ShardRequest {
     pub request_id: [u8; 16],
     pub file_id: [u8; 32],
     pub shard_index: u16,
+    pub total_shards: u16,
     pub expected_hash: [u8; 32],
     pub max_bytes: u32,
 }
@@ -114,6 +115,7 @@ pub struct StorageShardRequest {
     pub requester: [u8; 32],
     pub file_id: [u8; 32],
     pub shard_index: u16,
+    pub total_shards: u16,
     pub expected_hash: [u8; 32],
     pub original_size: u64,
     pub max_bytes: u32,
@@ -125,6 +127,7 @@ impl StorageShardRequest {
         requester: [u8; 32],
         file_id: [u8; 32],
         shard_index: u16,
+        total_shards: u16,
         expected_hash: [u8; 32],
         original_size: u64,
         max_bytes: u32,
@@ -135,6 +138,7 @@ impl StorageShardRequest {
             requester,
             file_id,
             shard_index,
+            total_shards,
             expected_hash,
             original_size,
             max_bytes,
@@ -145,7 +149,10 @@ impl StorageShardRequest {
         if self.version != STORAGE_PROTOCOL_VERSION {
             return Err("unsupported storage request version".into());
         }
-        if self.shard_index >= 1000 {
+        if self.total_shards < 12 || self.total_shards > 1000 {
+            return Err("storage request shard count out of range".into());
+        }
+        if self.shard_index >= self.total_shards {
             return Err("storage shard index out of range".into());
         }
         if self.max_bytes == 0 {
@@ -195,8 +202,8 @@ impl StorageShardTransfer {
         if self.version != STORAGE_PROTOCOL_VERSION {
             return Err("unsupported storage transfer version".into());
         }
-        if self.total_shards != 1000 {
-            return Err("storage transfers require exactly 1000 shards".into());
+        if self.total_shards < 12 || self.total_shards > 1000 {
+            return Err("storage transfer shard count out of range".into());
         }
         if self.shard_index as usize >= self.total_shards as usize {
             return Err("storage shard index out of range".into());

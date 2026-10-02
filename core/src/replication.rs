@@ -53,6 +53,14 @@ pub fn select_replicas(file_id: &[u8; 32], shard_index: usize, nodes: &[String])
 }
 
 pub fn build_plan(file_id: [u8; 32], nodes: &[String]) -> Result<PlacementPlan, String> {
+    build_plan_for_shards(file_id, nodes, REQUIRED_SHARDS)
+}
+
+pub fn build_plan_for_shards(
+    file_id: [u8; 32],
+    nodes: &[String],
+    shard_count: usize,
+) -> Result<PlacementPlan, String> {
     let mut unique = BTreeSet::new();
     for n in nodes {
         if !n.is_empty() {
@@ -62,8 +70,9 @@ pub fn build_plan(file_id: [u8; 32], nodes: &[String]) -> Result<PlacementPlan, 
     if unique.len() < REQUIRED_REPLICAS {
         return Err("at least three distinct storage nodes are required".into());
     }
+    let shard_count = shard_count.clamp(12, REQUIRED_SHARDS);
     let candidates: Vec<String> = unique.into_iter().collect();
-    let placements = (0..REQUIRED_SHARDS)
+    let placements = (0..shard_count)
         .map(|i| ReplicaPlacement {
             shard_index: i as u16,
             nodes: select_replicas(&file_id, i, &candidates),
@@ -71,7 +80,7 @@ pub fn build_plan(file_id: [u8; 32], nodes: &[String]) -> Result<PlacementPlan, 
         .collect();
     Ok(PlacementPlan {
         file_id,
-        shards: REQUIRED_SHARDS,
+        shards: shard_count,
         replicas_per_shard: REQUIRED_REPLICAS,
         placements,
     })

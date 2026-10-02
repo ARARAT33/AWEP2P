@@ -50,5 +50,10 @@ Check an item only when code and repeatable evidence demonstrate it.
 - [ ] Artifacts include version, target, checksum, signing metadata, and release limitations.
 - [ ] Clean-machine install and uninstall are tested.
 
+## Automated evidence
+- `cargo fmt --all -- --check` must pass in CI without a write-back formatter job.
+- `cargo check --workspace --all-targets`, `cargo test --workspace --all-targets`, and `cargo clippy --workspace --all-targets -- -D warnings` are required gates.
+- The node product smoke test starts three independent node processes, verifies their HTTP health APIs, authenticates peer connections, and exercises replicated storage through the real process boundary.
+
 ## Status rule
 A checked box requires a linked test, CI run, or reproducible operator procedure. A module existing or compiling is not enough. The current classification and work tracks are in [daily status](AWEP2P-DAILY-STATUS.md).

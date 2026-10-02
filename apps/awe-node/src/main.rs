@@ -30,7 +30,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 const UI_HTML: &str = include_str!("../../awe-desktop/ui/index.html");
 const UI_CSS: &str = include_str!("../../awe-desktop/ui/style.css");
 const UI_JS: &str = include_str!("../../awe-desktop/ui/app.js");
-const UI_ADDR: &str = "127.0.0.1:41800";
+const DEFAULT_UI_ADDR: &str = "127.0.0.1:41800";
 
 type MessengerLog = Arc<Mutex<Vec<serde_json::Value>>>;
 type FederationState = Arc<Mutex<AweNetConfig>>;
@@ -178,6 +178,8 @@ async fn serve_ui(
     federation_state: FederationState,
     federation_path: PathBuf,
     storage: StorageState,
+    pending_acks: PendingAcks,
+    pending_shards: PendingShards,
 ) -> Result<()> {
     let request = read_http_request(&mut stream).await?;
     let request_line = request.lines().next().unwrap_or("");
@@ -260,7 +262,7 @@ async fn serve_ui(
                         serde_json::to_string_pretty(&cfg).map(|s| ("data-group.dgc".into(), s)).map_err(|e| e.to_string())
                     }
                 },
-                _ => Err("kind must be awenode, awedc or dgc".into())
+                _ => Err(anyhow::anyhow!("kind must be awenode, awedc or dgc"))
             };
             match result {
                 Ok((filename, content)) => ("200 OK", "application/json; charset=utf-8", serde_json::json!({"status":"generated","filename":filename,"content":content}).to_string()),
@@ -288,9 +290,9 @@ async fn serve_ui(
                     Ok(())
                 },
                 "awedc" => {
-                    let cfg: DataCentreConfig = serde_json::from_str(content).map_err(|e| e.to_string())?;
+                    let cfg: DataCentreConfig = serde_json::from_str(content).map_err(anyhow::Error::msg)?;
                     federation::validate_awedc(&cfg).map_err(anyhow::Error::msg)?;
-                    let mut s = federation_state.lock().map_err(|_| "state lock poisoned".to_string())?;
+                    let mut s = federation_state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
                     s.local_node_id = format_uid(node.identity.public.awe_id.as_bytes());
                     // .awedc is a data-centre federation invitation: it adds the
                     // remote DC as a peer, rather than silently changing this node's
@@ -424,7 +426,7 @@ async fn serve_ui(
                     Err(_) => ("400 Bad Request", "application/json; charset=utf-8",
                         serde_json::json!({"status":"error","error":"data_hex is not valid hexadecimal"}).to_string()),
                     Ok(data) => {
-                        let policy = StoragePolicy::hyper_sovereign();
+                        let policy = StoragePolicy::for_file_size(data.len());
                         let file_id = *blake3::hash(&data).as_bytes();
                         let peers = node.closest_peers(node.identity.public.awe_id.as_bytes(), 64).await;
                         let local_id = format_uid(node.identity.public.awe_id.as_bytes());
@@ -436,7 +438,7 @@ async fn serve_ui(
                             }
                         }
 
-                        match build_plan(file_id, &node_ids) {
+                        match awep2p_core::replication::build_plan_for_shards(file_id, &node_ids, policy.total_shards()) {
                             Err(error) => ("409 Conflict", "application/json; charset=utf-8",
                                 serde_json::json!({"status":"error","error":error,"discovered_nodes":node_ids.len()}).to_string()),
                             Ok(plan) => match encode_shards(&data, &policy) {
@@ -466,15 +468,15 @@ async fn serve_ui(
                                                     }))
                                                 }
                                             } else if let Some(peer_id) = peer_ids.get(target) {
-                                                let request_id = *blake3::hash(
+                                                let request_id = blake3::hash(
                                                     format!("upload:{}:{}:{}:{}", hex::encode(file_id), index, target, now_unix()).as_bytes()
                                                 ).as_bytes()[..16].try_into().unwrap_or([0u8; 16]);
                                                 let transfer = StorageShardTransfer::new(
                                                     request_id,
-                                                    node.identity.public.awe_id,
+                                                    node.identity.public.awe_id.as_bytes(),
                                                     file_id,
                                                     index as u16,
-                                                    1000,
+                                                    policy.total_shards() as u16,
                                                     data.len() as u64,
                                                     shard.clone(),
                                                 );
@@ -527,7 +529,7 @@ async fn serve_ui(
                                         "file_id": hex::encode(file_id),
                                         "filename": filename,
                                         "original_size": data.len(),
-                                        "shards": 1000,
+                                        "shards": policy.total_shards(),
                                         "data_shards": policy.data_shards,
                                         "parity_shards": policy.parity_shards,
                                         "replicas": 3,
@@ -622,12 +624,17 @@ async fn serve_ui(
             match fs::read(&manifest_path) {
                 Ok(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes) {
                     Ok(manifest) => {
-                        let policy = StoragePolicy::hyper_sovereign();
-                        let mut shards = vec![None; 1000];
+                        let total_shards = manifest
+                            .get("shards")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(1000)
+                            .clamp(12, 1000) as usize;
+                        let policy = StoragePolicy::custom_scaled(total_shards);
+                        let mut shards = vec![None; total_shards];
                         let mut present = 0usize;
                         let mut missing = Vec::new();
                         if let Some(placements) = manifest.get("placements").and_then(|v| v.as_array()) {
-                            for (index, placement) in placements.iter().enumerate().take(1000) {
+                            for (index, placement) in placements.iter().enumerate().take(total_shards) {
                                 let local = format_uid(node.identity.public.awe_id.as_bytes());
                                 let owns = placement.get("nodes").and_then(|v| v.as_array())
                                     .map(|nodes| nodes.iter().any(|n| n.as_str() == Some(&local))).unwrap_or(false);
@@ -680,14 +687,15 @@ async fn serve_ui(
                                     let Some(peer_id) = peer_ids.get(target) else {
                                         continue;
                                     };
-                                    let request_id = *blake3::hash(
+                                    let request_id = blake3::hash(
                                         format!("download:{}:{}:{}:{}", file_id_hex, index, target, now_unix()).as_bytes()
                                     ).as_bytes()[..16].try_into().unwrap_or([0u8; 16]);
                                     let request = StorageShardRequest::new(
                                         request_id,
-                                        node.identity.public.awe_id,
+                                        node.identity.public.awe_id.as_bytes(),
                                         <[u8;32]>::try_from(hex::decode(file_id_hex).unwrap_or_default()).unwrap_or([0;32]),
                                         index as u16,
+                                        policy.total_shards() as u16,
                                         expected_hash,
                                         original_size,
                                         4 * 1024 * 1024,
@@ -727,9 +735,9 @@ async fn serve_ui(
                         }
 
                         if present < policy.data_shards {
-                            return ("409 Conflict","application/json; charset=utf-8",
-                                serde_json::json!({"status":"insufficient_shards","present":present,"required":policy.data_shards,"missing":missing}).to_string());
-                        }
+                            ("409 Conflict","application/json; charset=utf-8",
+                                serde_json::json!({"status":"insufficient_shards","present":present,"required":policy.data_shards,"missing":missing}).to_string())
+                        } else {
                         match recover_shards(&mut shards, &policy) {
                             Ok(mut data) => {
                                 let original_size = manifest.get("original_size").and_then(|v| v.as_u64()).unwrap_or(data.len() as u64) as usize;
@@ -746,6 +754,7 @@ async fn serve_ui(
                             Err(error) => ("500 Internal Server Error","application/json; charset=utf-8",
                                 serde_json::json!({"status":"error","error":error.to_string()}).to_string())
                         }
+                        }
                     },
                     Err(error) => ("500 Internal Server Error","application/json; charset=utf-8",
                         serde_json::json!({"status":"error","error":error.to_string()}).to_string())
@@ -755,9 +764,13 @@ async fn serve_ui(
             }
         },
         "/api/storage/health" => {
-            let online: std::collections::BTreeSet<String> = node.closest_peers(4096)
-                .into_iter().map(|p| format_uid(&p.awe_id)).collect();
-            online.insert(hex::encode(node.identity.public.awe_id));
+            let online: std::collections::BTreeSet<String> = node
+                .closest_peers(node.identity.public.awe_id.as_bytes(), 4096)
+                .await
+                .into_iter()
+                .map(|p| format_uid(&p.awe_id))
+                .collect();
+            online.insert(format_uid(node.identity.public.awe_id.as_bytes()));
             let manifest_dir = PathBuf::from(data_dir_for_api()).join("storage").join("manifests");
             let mut files = 0usize;
             let mut healthy = 0usize;
@@ -807,6 +820,9 @@ async fn serve_ui(
 }
 
 fn data_dir_for_api() -> String {
+    if let Some(value) = env::var_os("AWE_DATA_DIR") {
+        return PathBuf::from(value).display().to_string();
+    }
     if let Some(home) = env::var_os("USERPROFILE").or_else(|| env::var_os("HOME")) {
         PathBuf::from(home).join(".awep2p").display().to_string()
     } else {
@@ -822,7 +838,9 @@ fn now_unix() -> u64 {
 }
 
 async fn run_product() -> Result<()> {
-    let data_dir = if let Some(home) = env::var_os("USERPROFILE").or_else(|| env::var_os("HOME")) {
+    let data_dir = if let Some(value) = env::var_os("AWE_DATA_DIR") {
+        PathBuf::from(value)
+    } else if let Some(home) = env::var_os("USERPROFILE").or_else(|| env::var_os("HOME")) {
         PathBuf::from(home).join(".awep2p")
     } else {
         PathBuf::from(".awep2p")
@@ -962,10 +980,10 @@ async fn run_product() -> Result<()> {
                     }
                     let transfer = StorageShardTransfer::new(
                         request.request_id,
-                        dispatcher_node.identity.public.awe_id,
+                        dispatcher_node.identity.public.awe_id.as_bytes(),
                         request.file_id,
                         request.shard_index,
-                        1000,
+                        request.total_shards,
                         request.original_size,
                         data,
                     );
@@ -1005,15 +1023,19 @@ async fn run_product() -> Result<()> {
         }
     });
 
-    let listener = tokio::net::TcpListener::bind(UI_ADDR)
+    let ui_addr: SocketAddr = env::var("AWE_UI_ADDR")
+        .unwrap_or_else(|_| DEFAULT_UI_ADDR.into())
+        .parse()
+        .context("invalid AWE_UI_ADDR")?;
+    let listener = tokio::net::TcpListener::bind(ui_addr)
         .await
-        .with_context(|| format!("cannot bind AWEp2P UI to {UI_ADDR}"))?;
+        .with_context(|| format!("cannot bind AWEp2P UI to {ui_addr}"))?;
     println!("AWEp2P is running.");
     println!("Node: {node_id}");
     println!("Node transport: {listen}");
-    println!("UI: http://{UI_ADDR}");
+    println!("UI: http://{ui_addr}");
 
-    let url = format!("http://{UI_ADDR}/");
+    let url = format!("http://{ui_addr}/");
     #[cfg(target_os = "windows")]
     {
         let _ = std::process::Command::new("cmd")
@@ -1035,6 +1057,8 @@ async fn run_product() -> Result<()> {
         let api_messenger = messenger.clone();
         let api_federation = federation_state.clone();
         let api_storage = storage.clone();
+        let api_pending_acks = pending_acks.clone();
+        let api_pending_shards = pending_shards.clone();
         tokio::spawn(async move {
             if let Err(e) = serve_ui(
                 stream,
@@ -1043,6 +1067,8 @@ async fn run_product() -> Result<()> {
                 api_federation,
                 federation_path.clone(),
                 api_storage,
+                api_pending_acks,
+                api_pending_shards,
             )
             .await
             {

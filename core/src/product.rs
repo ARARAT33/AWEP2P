@@ -11,7 +11,7 @@ pub const PRODUCT_PROTOCOL: &str = "AWEP2P/1";
 pub const DEFAULT_REPLICATION: u8 = 3;
 pub const DEFAULT_CHUNK_SIZE: u64 = 4 * 1024 * 1024;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ResourceId(pub String);
 
 impl ResourceId {
