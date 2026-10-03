@@ -2,14 +2,14 @@ name: AWEp2P Workspace CI
 
 on:
   push:
-    branches: [main, 'fix/ci-rustfmt-ebc151f']
+    branches: [main]
     paths:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'core/**'
       - 'apps/**'
       - 'platforms/**'
-      - '.github/workflows/core.yml'
+      - '.github/workflows/**'
   pull_request:
     paths:
       - 'Cargo.toml'
@@ -17,10 +17,15 @@ on:
       - 'core/**'
       - 'apps/**'
       - 'platforms/**'
-      - '.github/workflows/core.yml'
+      - '.github/workflows/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: awep2p-workspace-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   rust:
@@ -34,10 +39,14 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.head_ref || github.ref_name }}
-          fetch-depth: 2
+          fetch-depth: 1
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.os }}
       - name: Check Rust workspace formatting
         run: cargo fmt --all -- --check
       - name: Build workspace
@@ -56,6 +65,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 1
       - name: Reject unfinished markers
         shell: bash
         run: |
@@ -64,14 +74,24 @@ jobs:
             exit 1
           fi
       - name: Verify required platform boundaries
+        shell: bash
         run: |
-          test -f platforms/windows/service.rs
-          test -f platforms/linux/daemon.rs
-          test -f platforms/android/AndroidManifest.xml
-          test -f platforms/aweos/README.md
-          test -f core/src/network.rs
-          test -f core/src/storage.rs
-          test -f core/src/host.rs
-          test -f core/src/store.rs
-          test -f core/src/messenger.rs
-          test -f core/src/registry.rs
+          set -euo pipefail
+          required=(
+            platforms/windows/service.rs
+            platforms/linux/daemon.rs
+            platforms/android/AndroidManifest.xml
+            platforms/aweos/README.md
+            core/src/network.rs
+            core/src/storage.rs
+            core/src/host.rs
+            core/src/store.rs
+            core/src/messenger.rs
+            core/src/registry.rs
+            core/src/policy.rs
+            core/src/messenger_runtime.rs
+            core/src/nat.rs
+          )
+          for path in "${required[@]}"; do
+            test -f "$path" || { echo "Missing required boundary: $path"; exit 1; }
+          done

@@ -2,19 +2,31 @@ name: AWEp2P Windows Product
 
 on:
   workflow_dispatch:
+  push:
+    tags: ['v*']
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: awep2p-windows-product-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   package-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
-      - run: cargo build --release -p awe-node --target x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-product
+      - name: Build node
+        run: cargo build --release -p awe-node --target x86_64-pc-windows-msvc
       - name: Create portable package
         shell: pwsh
         run: |
@@ -65,3 +77,5 @@ jobs:
           path: |
             installer/AWEP2P-Setup-Windows-x64.exe
             AWEP2P-Windows-x64-Portable.zip
+          if-no-files-found: error
+          retention-days: 14

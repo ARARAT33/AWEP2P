@@ -3,28 +3,59 @@ name: AWEp2P Windows Binary
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "bin/**"
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'core/**'
+      - 'apps/awe-node/**'
+      - 'platforms/windows/**'
+      - '.github/workflows/windows-binary.yml'
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'core/**'
+      - 'apps/awe-node/**'
+      - 'platforms/windows/**'
+      - '.github/workflows/windows-binary.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: awep2p-windows-binary-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-windows:
-    if: "!contains(github.event.head_commit.message, '[build-binary]')"
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 1
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-binary
       - name: Build AWEp2P
         run: cargo build --release -p awe-node --target x86_64-pc-windows-msvc
+      - name: Verify binary exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "target/x86_64-pc-windows-msvc/release/awe-node.exe")) {
+            throw "awe-node.exe was not produced"
+          }
       - name: Upload Windows binary
         uses: actions/upload-artifact@v4
         with:
           name: AWEp2P-Windows-x64-node
           path: target/x86_64-pc-windows-msvc/release/awe-node.exe
           if-no-files-found: error
+          retention-days: 14

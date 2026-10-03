@@ -7,23 +7,29 @@ on:
       - '**/*.rs'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - '.github/workflows/format.yml'
+      - '.github/workflows/**'
   pull_request:
     paths:
       - '**/*.rs'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - '.github/workflows/format.yml'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: awep2p-format-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   rustfmt:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt

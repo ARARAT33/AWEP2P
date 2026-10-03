@@ -165,6 +165,12 @@ impl SignedManifest {
         ) {
             return Err("invalid developer signature");
         };
+        if crate::identity::AweId::from_public_key(&self.manifest.developer_public_key)
+            .as_bytes()
+            != &self.manifest.developer_awe_id
+        {
+            return Err("developer AWE-ID does not match signing key");
+        }
         Ok(())
     }
 }

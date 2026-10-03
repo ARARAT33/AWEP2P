@@ -3,10 +3,25 @@ name: AWEp2P Desktop Release
 on:
   push:
     branches: [main]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'core/**'
+      - 'apps/**'
+      - 'awe-desktop/**'
+      - 'platforms/**'
+      - 'awenet.sh'
+      - 'awenet.cmd'
+      - 'awenet.ps1'
+      - '.github/workflows/desktop-release.yml'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: awep2p-desktop-release-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   desktop:
@@ -22,13 +37,18 @@ jobs:
           - name: Linux x64
             runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
+          - name: macOS Intel
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
           - name: macOS Apple Silicon
             runner: macos-latest
             target: aarch64-apple-darwin
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
       - name: Install Linux build dependencies
-        if: startsWith(matrix.runner, 'ubuntu')
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils build-essential
@@ -38,16 +58,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.target }}
       - name: Build node
         run: cargo build --release -p awe-node --target ${{ matrix.target }}
       - name: Prepare bundled node
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p apps/awe-app/src-tauri/binaries
-          cp "target/${{ matrix.target }}/release/awe-node${{ startsWith(matrix.runner, 'windows') && '.exe' || '' }}" "apps/awe-app/src-tauri/binaries/awe-node-${{ matrix.target }}${{ startsWith(matrix.runner, 'windows') && '.exe' || '' }}"
+          source="target/${{ matrix.target }}/release/awe-node${{ startsWith(matrix.runner, 'windows') && '.exe' || '' }}"
+          destination="apps/awe-app/src-tauri/binaries/awe-node-${{ matrix.target }}${{ startsWith(matrix.runner, 'windows') && '.exe' || '' }}"
+          test -f "$source"
+          cp "$source" "$destination"
       - name: Install app dependencies
         working-directory: apps/awe-app
-        run: npm install
+        run: npm install --no-audit --no-fund
       - name: Build native desktop app
         working-directory: apps/awe-app
         run: npx tauri build --ci
@@ -56,18 +83,26 @@ jobs:
           name: AWEp2P-${{ matrix.target }}
           path: apps/awe-app/src-tauri/target/release/bundle/**
           if-no-files-found: error
+          retention-days: 14
 
   linux-portable:
     name: Linux x64 portable node
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-gnu
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: portable-linux-x64
       - run: cargo build --release -p awe-node --target x86_64-unknown-linux-gnu
       - name: Package portable node
         run: |
+          set -euo pipefail
+          rm -rf package
           mkdir -p package/bin/linux-x86_64
           cp target/x86_64-unknown-linux-gnu/release/awe-node package/bin/linux-x86_64/awe-node
           cp awenet.sh package/awenet.sh
@@ -77,15 +112,22 @@ jobs:
         with:
           name: AWEp2P-Linux-x64-Portable
           path: AWEP2P-Linux-x64-Portable.tar.gz
+          if-no-files-found: error
+          retention-days: 14
 
   windows-portable:
     name: Windows x64 portable node and installer
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: portable-windows-x64
       - run: cargo build --release -p awe-node --target x86_64-pc-windows-msvc
       - name: Package portable node
         shell: pwsh
@@ -137,11 +179,15 @@ jobs:
           path: |
             installer/AWEP2P-Setup-Windows-x64.exe
             AWEP2P-Windows-x64-Portable.zip
+          if-no-files-found: error
+          retention-days: 14
 
   publish:
     name: Publish latest desktop release
     needs: [desktop, linux-portable, windows-portable]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -150,22 +196,19 @@ jobs:
       - name: Select distributable files only
         shell: bash
         run: |
+          set -euo pipefail
+          rm -rf publish
           mkdir -p publish
           find release -type f \(             -name '*.exe' -o -name '*.msi' -o -name '*.deb' -o -name '*.rpm'             -o -name '*.AppImage' -o -name '*.dmg' -o -name '*.zip' -o -name '*.tar.gz'           \) -exec cp -f {} publish/ \;
           test -n "$(find publish -maxdepth 1 -type f -print -quit)"
-      - name: Generate checksums and manifest
-        shell: bash
-        run: |
-          sort < <(cd publish && sha256sum *) > publish/SHA256SUMS.txt
-          cat > publish/RELEASE-MANIFEST.txt <<'EOF'
-          AWEp2P latest desktop release
-          =============================
-          Windows: installer + portable node
-          Linux: native Tauri packages + portable node
-          macOS: native Tauri package
-          Build source: main
-          Only distributable package files are published; unpacked runtime dependencies are excluded.
-          EOF
+          (cd publish && sha256sum * > SHA256SUMS.txt)
+          {
+            echo "AWEp2P latest desktop release"
+            echo "Built from commit ${GITHUB_SHA}"
+            echo "Windows: installer + portable node"
+            echo "Linux: native Tauri packages + portable node"
+            echo "macOS: Intel + Apple Silicon Tauri packages"
+          } > publish/RELEASE-MANIFEST.txt
       - name: Publish latest
         uses: softprops/action-gh-release@v2
         with:
@@ -174,6 +217,5 @@ jobs:
           prerelease: false
           make_latest: true
           generate_release_notes: true
-          overwrite_files: true
-          files: |
-            publish/*
+          fail_on_unmatched_files: true
+          files: publish/*

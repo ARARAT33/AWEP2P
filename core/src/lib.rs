@@ -13,6 +13,7 @@ pub mod lan_mesh;
 pub mod limits;
 pub mod messenger;
 pub mod messenger_runtime;
+pub mod nat;
 pub mod namespace;
 pub mod network;
 pub mod network_topology;
