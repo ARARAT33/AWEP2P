@@ -20,6 +20,7 @@ async function api(path,options={}){
  }finally{clearTimeout(timer)}
 }
 const call={pc:null,id:null,remote:null,last:0,seen:new Set(),active:false};
+let activeBrowserObjectUrl=null;
 async function sendCallSignal(type,data){
  if(!call.remote||!call.id)return;
  await api("/api/call/signal",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({recipient:call.remote,call_id:call.id,signal_type:type,data:JSON.stringify(data)})});
@@ -82,7 +83,8 @@ async function loadMessenger(){
   const box=document.getElementById("messageList");
   if(box)box.innerHTML='<div class="empty">Messenger is unavailable: '+esc(e.message)+'</div>';
  }
-}\nasync function refresh(){
+}
+async function refresh(){
  const results=await Promise.allSettled([
   api("/api/status"),api("/api/node"),api("/api/storage"),api("/api/security"),api("/api/federation")
  ]);
@@ -112,7 +114,7 @@ function render(k){
  const p=pages[k]||pages.dashboard;navs.forEach(n=>n.classList.toggle("active",n.dataset.view===k));title.textContent=p[0];
  let body="";
  if(k==="browser"){
-  body=panel("Browser",'<div class="browser-bar"><input id="browserUrl" value="awe://home" placeholder="awe://fid-64hex, awe://site-id or https://example.com"><button class="primary" id="browserGo">Open</button><button class="secondary" id="browserExternal">↗ External</button></div><div class="browser-hint">AWE resources use native <b>awe://</b> IDs. Stored files can be opened as <b>awe://fid-&lt;64hex&gt;</b>.</div><iframe id="browserFrame" class="browser-frame" title="AWE Browser" src="about:blank"></iframe>');
+  body=panel("Browser",'<div class="browser-bar"><input id="browserUrl" value="awe://home" placeholder="awe://fid-64hex, awe://site-id or https://example.com"><button class="primary" id="browserGo">Open</button><button class="secondary" id="browserExternal">↗ External</button></div><div class="browser-hint">AWE resources use native <b>awe://</b> IDs. Stored files can be opened as <b>awe://fid-&lt;64hex&gt;</b>.</div><iframe id="browserFrame" class="browser-frame" title="AWE Browser" referrerpolicy="no-referrer" src="about:blank"></iframe>');
  } else if(k==="dashboard"){
   body='<div class="grid">'+card("Node status",live.status.toUpperCase())+card("Data centre",live.node?.descriptor?"Node registered":"Local node","Live node descriptor")+card("Node ID",live.node_id,"AWE identity")+card("Connected peers",live.status?.active_connections||0,"Authenticated live connections")+card("Transport",live.transport,"Node transport")+'</div>'+
   '<div class="section two">'+panel("Network topology",'<div class="network-map"><div class="node-point main" style="left:49%;top:47%"></div>'+live.peers.slice(0,8).map((_,i)=>{const a=i*45;return '<div class="line" style="left:51%;top:51%;width:105px;transform:rotate('+a+'deg)"></div><div class="node-point" style="left:'+(50+34*Math.cos(a*Math.PI/180))+'%;top:'+(50+34*Math.sin(a*Math.PI/180))+'%"></div>'}).join("")+'</div>'),panel("Runtime health",'<div class="big-status"><div class="big-orb">'+(live.status==="online"?"✓":"!")+'</div><div><b>'+esc(live.status==="online"?"Node operational":"Node unavailable")+'</b><div class="detail">'+esc(live.node_address)+'</div></div></div><div class="list section"><div class="list-row"><span>Core API</span><span class="status"><i></i>'+esc(live.ui)+'</span></div><div class="list-row"><span>Known peers</span><b>'+live.peers.length+'</b></div></div>'))+
@@ -170,9 +172,45 @@ function render(k){
  bind(k);
 }
 function bind(k){
- const openBrowser=async()=>{const input=document.getElementById("browserUrl").value.trim();const frame=document.getElementById("browserFrame");if(!input)return;const awe=input.match(/^awe:\/\/fid-([0-9a-f]{64})$/i);if(awe){try{const r=await api("/api/storage/get?file_id="+encodeURIComponent(awe[1]));const raw=r.data_hex||"";const bytes=new Uint8Array(raw.length/2);for(let i=0;i<bytes.length;i++)bytes[i]=parseInt(raw.slice(i*2,i*2+2),16);const type=/\.(html?|svg)$/i.test(r.filename||"")?"text/html":/\.json$/i.test(r.filename||"")?"application/json":"text/plain";frame.src=URL.createObjectURL(new Blob([bytes],{type}));return}catch(e){toast("AWE resource unavailable: "+e.message);return}}if(/^https?:\/\//i.test(input)){frame.src=input;return}if(input.startsWith("awe://")){frame.srcdoc='<h2>AWENET resource</h2><p>Resolved address: '+esc(input)+'</p><p>Use an <b>awe://fid-&lt;64hex&gt;</b> resource ID for a network-native stored object.</p>';return}frame.src="https://"+input};
+  async function openBrowser(){
+    const input=document.getElementById("browserUrl")?.value.trim()||"";
+    const frame=document.getElementById("browserFrame");
+    if(!input||!frame)return;
+    frame.referrerPolicy="no-referrer";
+    const awe=input.match(/^awe:\/\/fid-([0-9a-f]{64})$/i);
+    if(awe){
+      try{
+        const r=await api("/api/storage/get?file_id="+encodeURIComponent(awe[1]));
+        const raw=String(r.data_hex||"");
+        if(!/^(?:[0-9a-f]{2})*$/i.test(raw))throw new Error("Malformed object data");
+        const bytes=new Uint8Array(raw.length/2);
+        for(let i=0;i<bytes.length;i++)bytes[i]=parseInt(raw.slice(i*2,i*2+2),16);
+        const name=String(r.filename||"").toLowerCase();
+        const type=/\.html?$/.test(name)?"text/html":/\.svg$/.test(name)?"image/svg+xml":/\.json$/.test(name)?"application/json":"application/octet-stream";
+        // A stored site is untrusted content. Keep its origin opaque and deny
+        // access to the AWENET parent window and loopback API.
+        frame.setAttribute("sandbox","allow-scripts allow-forms allow-popups");
+        if(activeBrowserObjectUrl)URL.revokeObjectURL(activeBrowserObjectUrl);
+        activeBrowserObjectUrl=URL.createObjectURL(new Blob([bytes],{type}));
+        frame.src=activeBrowserObjectUrl;
+        return;
+      }catch(e){toast("AWE resource unavailable: "+e.message);return}
+    }
+    if(input.startsWith("awe://")){
+      frame.setAttribute("sandbox","");
+      frame.srcdoc='<h2>AWENET resource</h2><p>Resolved address: '+esc(input)+'</p><p>Use an <b>awe://fid-&lt;64hex&gt;</b> resource ID for a network-native stored object.</p>';
+      return;
+    }
+    const external=/^https?:\/\//i.test(input)?input:"https://"+input;
+    let parsed;
+    try{parsed=new URL(external)}catch(_){toast("Enter a valid http(s) URL or AWE resource ID");return}
+    if(parsed.protocol!=="http:"&&parsed.protocol!=="https:"){toast("Only http(s) external URLs are supported");return}
+    // External pages stay cross-origin; no-referrer avoids leaking the local UI URL.
+    frame.removeAttribute("sandbox");
+    frame.src=parsed.href;
+  }
  const bg=document.getElementById("browserGo");if(bg)bg.onclick=openBrowser;
- const be=document.getElementById("browserExternal");if(be)be.onclick=()=>{let u=document.getElementById("browserUrl").value.trim();if(u.startsWith("awe://"))return openBrowser();if(!/^https?:\/\//i.test(u))u="https://"+u;window.open(u,"_blank","noopener,noreferrer")};
+ const be=document.getElementById("browserExternal");if(be)be.onclick=()=>openBrowser();
  const bu=document.getElementById("browserUrl");if(bu)bu.addEventListener("keydown",e=>{if(e.key==="Enter")bg?.click()});
  const r=document.getElementById("refreshBtn");if(r)r.onclick=async()=>{await refresh();render(k)};
  const g=document.getElementById("goNetwork");if(g)g.onclick=()=>render("network");
