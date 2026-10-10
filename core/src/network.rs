@@ -995,11 +995,16 @@ impl Node {
                         Control::Nodes { .. } | Control::Hello { .. } => break,
                     }
                 }
-                Ok(Err(_)) => {
-                    let _ = defense
-                        .lock()
-                        .expect("defense lock poisoned")
-                        .strike(c.remote_id, now());
+                Ok(Err(error)) => {
+                    // EOF/reset is a normal transport lifecycle event (for example,
+                    // after one-shot bootstrap discovery), not proof of peer abuse.
+                    // Only protocol and cryptographic violations accrue strikes.
+                    if warrants_peer_strike(&error) {
+                        let _ = defense
+                            .lock()
+                            .expect("defense lock poisoned")
+                            .strike(c.remote_id, now());
+                    }
                     break;
                 }
                 Err(_) => {
@@ -1204,21 +1209,33 @@ impl Node {
             .map_err(|_| NetworkError::Timeout)?
             .map_err(|_| NetworkError::Protocol("outbound limiter closed".into()))?;
 
-        let connection = if let Some(connection) = self.active.read().await.get(peer_id).cloned() {
+        // Scope the read guard so the missing-connection path can acquire the
+        // write lock without waiting forever on its own outstanding read lock.
+        let existing_connection = {
+            let active = timeout(OUTBOUND_QUEUE_TIMEOUT, self.active.read())
+                .await
+                .map_err(|_| NetworkError::Timeout)?;
+            active.get(peer_id).cloned()
+        };
+        let connection = if let Some(connection) = existing_connection {
             connection
         } else {
-            let address = self
-                .peers
-                .read()
-                .await
-                .get(peer_id)
-                .and_then(|peer| peer.addresses.first().copied())
-                .ok_or_else(|| NetworkError::Protocol("peer address is unknown".into()))?;
+            let address = {
+                let peers = timeout(OUTBOUND_QUEUE_TIMEOUT, self.peers.read())
+                    .await
+                    .map_err(|_| NetworkError::Timeout)?;
+                peers
+                    .get(peer_id)
+                    .and_then(|peer| peer.addresses.first().copied())
+                    .ok_or_else(|| NetworkError::Protocol("peer address is unknown".into()))?
+            };
             let fresh = timeout(OUTBOUND_CONNECT_TIMEOUT, self.connect(address))
                 .await
                 .map_err(|_| NetworkError::Timeout)??;
             let connection = Arc::new(tokio::sync::Mutex::new(fresh));
-            let mut active = self.active.write().await;
+            let mut active = timeout(OUTBOUND_QUEUE_TIMEOUT, self.active.write())
+                .await
+                .map_err(|_| NetworkError::Timeout)?;
             if active.len() < MAX_ACTIVE_CONNECTIONS {
                 active.insert(*peer_id, connection.clone());
             }
@@ -1264,13 +1281,15 @@ impl Node {
             .await
             .map_err(|_| NetworkError::Timeout)?
             .map_err(|_| NetworkError::Protocol("outbound limiter closed".into()))?;
-        let address = self
-            .peers
-            .read()
-            .await
-            .get(peer_id)
-            .and_then(|peer| peer.addresses.first().copied())
-            .ok_or_else(|| NetworkError::Protocol("peer address is unknown".into()))?;
+        let address = {
+            let peers = timeout(OUTBOUND_QUEUE_TIMEOUT, self.peers.read())
+                .await
+                .map_err(|_| NetworkError::Timeout)?;
+            peers
+                .get(peer_id)
+                .and_then(|peer| peer.addresses.first().copied())
+                .ok_or_else(|| NetworkError::Protocol("peer address is unknown".into()))?
+        };
         let mut connection = timeout(OUTBOUND_CONNECT_TIMEOUT, self.connect(address))
             .await
             .map_err(|_| NetworkError::Timeout)??;
@@ -1407,10 +1426,38 @@ fn now() -> u64 {
         .as_secs()
 }
 
+fn warrants_peer_strike(error: &NetworkError) -> bool {
+    matches!(
+        error,
+        NetworkError::Authentication
+            | NetworkError::Encryption
+            | NetworkError::FrameTooLarge
+            | NetworkError::Protocol(_)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::identity::Username;
+
+    #[test]
+    fn ordinary_socket_closures_do_not_strike_a_peer() {
+        assert!(!warrants_peer_strike(&NetworkError::Io(std::io::Error::from(
+            std::io::ErrorKind::UnexpectedEof,
+        ))));
+        assert!(!warrants_peer_strike(&NetworkError::Io(std::io::Error::from(
+            std::io::ErrorKind::ConnectionReset,
+        ))));
+    }
+
+    #[test]
+    fn malformed_protocol_errors_still_strike_a_peer() {
+        assert!(warrants_peer_strike(&NetworkError::Protocol(
+            "invalid encrypted frame".into()
+        )));
+        assert!(warrants_peer_strike(&NetworkError::Authentication));
+    }
     #[test]
     fn transport_bucket_hides_exact_payload_length() {
         // These constants define the AWE/WIRE-v1 framing contract.
