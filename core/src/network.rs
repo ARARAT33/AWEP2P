@@ -1630,7 +1630,10 @@ mod tests {
 
         let mut forged_id = id;
         forged_id[0] ^= 0x80;
-        assert!(!peer_id_matches_public_key(&forged_id, &identity.public.public_key));
+        assert!(!peer_id_matches_public_key(
+            &forged_id,
+            &identity.public.public_key
+        ));
     }
 
     #[test]
