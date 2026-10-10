@@ -44,6 +44,19 @@ type StorageState = Arc<LocalNodeStore>;
 type PendingAcks = Arc<Mutex<BTreeMap<[u8; 16], StorageShardAck>>>;
 type PendingShards = Arc<Mutex<BTreeMap<[u8; 16], StorageShardTransfer>>>;
 type PolicyState = Arc<Mutex<NetworkPolicy>>;
+
+/// Read runtime policy without silently replacing a poisoned policy with permissive defaults.
+/// A poisoned policy lock disables policy-controlled operations until restart/recovery.
+fn current_policy(state: &PolicyState) -> NetworkPolicy {
+    match state.lock() {
+        Ok(policy) => policy.clone(),
+        Err(_) => NetworkPolicy {
+            enabled: false,
+            ..NetworkPolicy::default()
+        },
+    }
+}
+
 type CommunityState = Arc<Mutex<serde_json::Value>>;
 type ConsensusState = Arc<Mutex<Option<OnecoinConsensusRuntime>>>;
 type OnecoinLedgerState = Arc<Mutex<OnecoinLedger>>;
@@ -452,7 +465,7 @@ async fn serve_ui(mut stream: tokio::net::TcpStream, state: UiState) -> Result<(
             "protocol": 1
         }).to_string()),
         "/api/policy" => {
-            let policy = policy_state.lock().map(|p| p.clone()).unwrap_or_default();
+            let policy = current_policy(&policy_state);
             ("200 OK", "application/json; charset=utf-8", serde_json::to_string(&policy).unwrap_or_else(|_| "{}".into()))
         },
         "/api/status" => {
@@ -816,7 +829,7 @@ async fn serve_ui(mut stream: tokio::net::TcpStream, state: UiState) -> Result<(
             if recipient.is_empty() || text.is_empty() {
                 ("400 Bad Request", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":"recipient and text are required"}).to_string())
             } else {
-                let runtime_policy = policy_state.lock().map(|p| p.clone()).unwrap_or_default();
+                let runtime_policy = current_policy(&policy_state);
                 if !runtime_policy.allows_message(text.len()) || !runtime_policy.allows_stream(policy::MESSENGER_STREAM) {
                     ("413 Payload Too Large", "application/json; charset=utf-8", serde_json::json!({"status":"rejected","error":"message rejected by local AWENET policy"}).to_string())
                 } else {
@@ -896,7 +909,7 @@ async fn serve_ui(mut stream: tokio::net::TcpStream, state: UiState) -> Result<(
                     Err(_) => ("400 Bad Request", "application/json; charset=utf-8",
                         serde_json::json!({"status":"error","error":"data_hex is not valid hexadecimal"}).to_string()),
                     Ok(data) => {
-                        let runtime_policy = policy_state.lock().map(|p| p.clone()).unwrap_or_default();
+                        let runtime_policy = current_policy(&policy_state);
                         if !runtime_policy.allows_upload(data.len()) || !runtime_policy.allows_stream(STORAGE_STREAM) {
                             ("403 Forbidden", "application/json; charset=utf-8", serde_json::json!({"status":"rejected","error":"upload rejected by local AWENET policy"}).to_string())
                         } else {
@@ -2518,5 +2531,23 @@ async fn main() -> Result<()> {
             .await
         }
         _ => usage(),
+    }
+}
+
+
+#[cfg(test)]
+mod policy_lock_tests {
+    use super::*;
+
+    #[test]
+    fn poisoned_policy_lock_fails_closed() {
+        let state: PolicyState = Arc::new(Mutex::new(NetworkPolicy::default()));
+        let poisoner = Arc::clone(&state);
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.lock().unwrap();
+            panic!("poison policy lock for regression test");
+        }).join();
+
+        assert!(!current_policy(&state).enabled);
     }
 }
