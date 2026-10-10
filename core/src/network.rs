@@ -142,12 +142,16 @@ pub struct A2P2Datagram {
 }
 
 impl A2P2Datagram {
-    pub fn pack(payload: &[u8]) -> Result<Vec<u8>, NetworkError> {
-        Ok(a2p2_seal(payload, &[0u8; 32])?.to_vec())
+    /// Encrypt a datagram with the caller's session key.
+    ///
+    /// A fixed or public key must never be used for real network traffic.
+    pub fn pack(payload: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, NetworkError> {
+        Ok(a2p2_seal(payload, key)?.to_vec())
     }
 
-    pub fn unpack(data: &[u8]) -> Result<Vec<u8>, NetworkError> {
-        a2p2_open(data, &[0u8; 32])
+    /// Decrypt a datagram with the same authenticated session key used by the sender.
+    pub fn unpack(data: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, NetworkError> {
+        a2p2_open(data, key)
     }
 }
 
@@ -1611,11 +1615,13 @@ mod tests {
     #[test]
     fn a2p2_datagram_obfuscation_and_padding() {
         let payload = b"GET a2p2://site.awe/index.html HTTP/1.1";
-        let packed = A2P2Datagram::pack(payload).unwrap();
+        let key = [0x5Au8; 32];
+        let packed = A2P2Datagram::pack(payload, &key).unwrap();
         assert_eq!(packed.len(), A2P2_FIXED_PACKET_SIZE);
 
-        let unpacked = A2P2Datagram::unpack(&packed).unwrap();
+        let unpacked = A2P2Datagram::unpack(&packed, &key).unwrap();
         assert_eq!(unpacked, payload);
+        assert!(A2P2Datagram::unpack(&packed, &[0xA5u8; 32]).is_err());
     }
 
     #[test]
