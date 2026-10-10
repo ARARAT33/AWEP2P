@@ -51,6 +51,10 @@ const PREAUTH_RATE_REFILL_PER_SECOND: u64 = 16;
 const FRAME_PAD_MIN: usize = 256;
 const FRAME_LENGTH_PREFIX: usize = 4;
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
+// Bound queueing and socket writes so a slow peer cannot stall product APIs indefinitely.
+const OUTBOUND_QUEUE_TIMEOUT: Duration = Duration::from_secs(3);
+const OUTBOUND_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const OUTBOUND_IO_TIMEOUT: Duration = Duration::from_secs(8);
 const HEARTBEAT: Duration = Duration::from_secs(20);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 
@@ -991,11 +995,16 @@ impl Node {
                         Control::Nodes { .. } | Control::Hello { .. } => break,
                     }
                 }
-                Ok(Err(_)) => {
-                    let _ = defense
-                        .lock()
-                        .expect("defense lock poisoned")
-                        .strike(c.remote_id, now());
+                Ok(Err(error)) => {
+                    // EOF/reset is a normal transport lifecycle event (for example,
+                    // after one-shot bootstrap discovery), not proof of peer abuse.
+                    // Only protocol and cryptographic violations accrue strikes.
+                    if warrants_peer_strike(&error) {
+                        let _ = defense
+                            .lock()
+                            .expect("defense lock poisoned")
+                            .strike(c.remote_id, now());
+                    }
                     break;
                 }
                 Err(_) => {
@@ -1195,34 +1204,64 @@ impl Node {
         stream: u32,
         payload: Vec<u8>,
     ) -> Result<std::time::Duration, NetworkError> {
-        let _outbound_permit = self
-            .outbound_limit
-            .acquire()
+        let _outbound_permit = timeout(OUTBOUND_QUEUE_TIMEOUT, self.outbound_limit.acquire())
             .await
+            .map_err(|_| NetworkError::Timeout)?
             .map_err(|_| NetworkError::Protocol("outbound limiter closed".into()))?;
-        let connection = if let Some(connection) = self.active.read().await.get(peer_id).cloned() {
+
+        // Scope the read guard so the missing-connection path can acquire the
+        // write lock without waiting forever on its own outstanding read lock.
+        let existing_connection = {
+            let active = timeout(OUTBOUND_QUEUE_TIMEOUT, self.active.read())
+                .await
+                .map_err(|_| NetworkError::Timeout)?;
+            active.get(peer_id).cloned()
+        };
+        let connection = if let Some(connection) = existing_connection {
             connection
         } else {
-            let address = self
-                .peers
-                .read()
+            let address = {
+                let peers = timeout(OUTBOUND_QUEUE_TIMEOUT, self.peers.read())
+                    .await
+                    .map_err(|_| NetworkError::Timeout)?;
+                peers
+                    .get(peer_id)
+                    .and_then(|peer| peer.addresses.first().copied())
+                    .ok_or_else(|| NetworkError::Protocol("peer address is unknown".into()))?
+            };
+            let fresh = timeout(OUTBOUND_CONNECT_TIMEOUT, self.connect(address))
                 .await
-                .get(peer_id)
-                .and_then(|peer| peer.addresses.first().copied())
-                .ok_or_else(|| NetworkError::Protocol("peer address is unknown".into()))?;
-            let connection = Arc::new(tokio::sync::Mutex::new(self.connect(address).await?));
-            let mut active = self.active.write().await;
+                .map_err(|_| NetworkError::Timeout)??;
+            let connection = Arc::new(tokio::sync::Mutex::new(fresh));
+            let mut active = timeout(OUTBOUND_QUEUE_TIMEOUT, self.active.write())
+                .await
+                .map_err(|_| NetworkError::Timeout)?;
             if active.len() < MAX_ACTIVE_CONNECTIONS {
                 active.insert(*peer_id, connection.clone());
             }
             connection
         };
-        let mut connection = connection.lock().await;
+
+        let mut connection_guard = match timeout(OUTBOUND_QUEUE_TIMEOUT, connection.lock()).await {
+            Ok(guard) => guard,
+            Err(_) => {
+                self.active.write().await.remove(peer_id);
+                return Err(NetworkError::Timeout);
+            }
+        };
         let started = Instant::now();
-        let result = connection
-            .send_data(stream, payload)
-            .await
-            .map(|_| started.elapsed());
+        let result = match timeout(
+            OUTBOUND_IO_TIMEOUT,
+            connection_guard.send_data(stream, payload),
+        )
+        .await
+        {
+            Ok(Ok(())) => Ok(started.elapsed()),
+            Ok(Err(error)) => Err(error),
+            Err(_) => Err(NetworkError::Timeout),
+        };
+        drop(connection_guard);
+
         if result.is_err() {
             self.active.write().await.remove(peer_id);
         }
@@ -1238,20 +1277,28 @@ impl Node {
         stream: u32,
         payload: Vec<u8>,
     ) -> Result<std::time::Duration, NetworkError> {
-        let _outbound_permit = self
-            .outbound_limit
-            .acquire()
+        let _outbound_permit = timeout(OUTBOUND_QUEUE_TIMEOUT, self.outbound_limit.acquire())
             .await
+            .map_err(|_| NetworkError::Timeout)?
             .map_err(|_| NetworkError::Protocol("outbound limiter closed".into()))?;
-        let address = self
-            .peers
-            .read()
+        let address = {
+            let peers = timeout(OUTBOUND_QUEUE_TIMEOUT, self.peers.read())
+                .await
+                .map_err(|_| NetworkError::Timeout)?;
+            peers
+                .get(peer_id)
+                .and_then(|peer| peer.addresses.first().copied())
+                .ok_or_else(|| NetworkError::Protocol("peer address is unknown".into()))?
+        };
+        let mut connection = timeout(OUTBOUND_CONNECT_TIMEOUT, self.connect(address))
             .await
-            .get(peer_id)
-            .and_then(|peer| peer.addresses.first().copied())
-            .ok_or_else(|| NetworkError::Protocol("peer address is unknown".into()))?;
-        let mut connection = self.connect(address).await?;
-        connection.send_data_roundtrip(stream, payload).await
+            .map_err(|_| NetworkError::Timeout)??;
+        timeout(
+            OUTBOUND_IO_TIMEOUT,
+            connection.send_data_roundtrip(stream, payload),
+        )
+        .await
+        .map_err(|_| NetworkError::Timeout)?
     }
 
     pub fn take_inbox(&self) -> Vec<([u8; 32], u32, Vec<u8>)> {
@@ -1379,10 +1426,38 @@ fn now() -> u64 {
         .as_secs()
 }
 
+fn warrants_peer_strike(error: &NetworkError) -> bool {
+    matches!(
+        error,
+        NetworkError::Authentication
+            | NetworkError::Encryption
+            | NetworkError::FrameTooLarge
+            | NetworkError::Protocol(_)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::identity::Username;
+
+    #[test]
+    fn ordinary_socket_closures_do_not_strike_a_peer() {
+        assert!(!warrants_peer_strike(&NetworkError::Io(
+            std::io::Error::from(std::io::ErrorKind::UnexpectedEof,)
+        )));
+        assert!(!warrants_peer_strike(&NetworkError::Io(
+            std::io::Error::from(std::io::ErrorKind::ConnectionReset,)
+        )));
+    }
+
+    #[test]
+    fn malformed_protocol_errors_still_strike_a_peer() {
+        assert!(warrants_peer_strike(&NetworkError::Protocol(
+            "invalid encrypted frame".into()
+        )));
+        assert!(warrants_peer_strike(&NetworkError::Authentication));
+    }
     #[test]
     fn transport_bucket_hides_exact_payload_length() {
         // These constants define the AWE/WIRE-v1 framing contract.
@@ -1436,6 +1511,25 @@ mod tests {
         );
         assert_eq!(peers.get(&id).unwrap().addresses, vec![address]);
         assert_eq!(peers.get(&id).unwrap().last_seen_unix, 2);
+    }
+
+    #[tokio::test]
+    async fn outbound_queue_wait_is_bounded_when_saturated() {
+        let identity = Identity::generate(Username::new("outbound-limit").unwrap());
+        let address: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let node = Node::new(identity, address);
+        let permits = node
+            .outbound_limit
+            .clone()
+            .acquire_many_owned(MAX_OUTBOUND_CONCURRENCY as u32)
+            .await
+            .unwrap();
+
+        let started = Instant::now();
+        let result = node.send_to_peer(&[7u8; 32], 99, vec![1]).await;
+        assert!(matches!(result, Err(NetworkError::Timeout)));
+        assert!(started.elapsed() < OUTBOUND_QUEUE_TIMEOUT + Duration::from_secs(1));
+        drop(permits);
     }
 
     #[tokio::test]

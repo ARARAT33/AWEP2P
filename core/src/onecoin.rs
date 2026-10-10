@@ -9,7 +9,7 @@ use crate::awenet::ContributionReceipt;
 use crate::identity::{AweId, Identity};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const ONECOIN_PROTOCOL: &str = "ONECOIN/1";
 pub const ATOMS_PER_COIN: u128 = 1_000_000_000_000_000_000;
@@ -248,13 +248,16 @@ pub struct OnecoinLedger {
     pub collected_fee_atoms: u128,
     /// Transaction IDs already accepted as replicated incoming transfers.
     #[serde(default)]
-    pub received_transactions: BTreeMap<[u8; 32], u128>,
+    pub received_transactions: BTreeMap<String, u128>,
+    /// Per-recipient tracking of sender nonces already accepted from remote nodes.
+    #[serde(default)]
+    pub received_nonces: BTreeMap<String, BTreeSet<u64>>,
     pub join_remainder_atoms: u128,
     pub join_distribution_active: bool,
     pub price: OnecoinPricePolicy,
     pub reward_policy: ContributionRewardPolicy,
     pub reward_verifiers: BTreeMap<String, [u8; 32]>,
-    pub rewarded_receipts: BTreeMap<[u8; 32], u128>,
+    pub rewarded_receipts: BTreeMap<String, u128>,
 }
 
 impl Default for OnecoinLedger {
@@ -266,6 +269,7 @@ impl Default for OnecoinLedger {
             total_issued_atoms: 0,
             collected_fee_atoms: 0,
             received_transactions: BTreeMap::new(),
+            received_nonces: BTreeMap::new(),
             join_remainder_atoms: 0,
             join_distribution_active: true,
             price: OnecoinPricePolicy::default(),
@@ -404,7 +408,10 @@ impl OnecoinLedger {
         if self.reward_verifiers.get(&verifier_key) != Some(&signed_receipt.verifier_public_key) {
             return Err("receipt signer is not an authorized reward verifier".into());
         }
-        if self.rewarded_receipts.contains_key(&receipt_key) {
+        if self
+            .rewarded_receipts
+            .contains_key(&hex::encode(receipt_key))
+        {
             return Err("contribution receipt was already rewarded".into());
         }
         let node_key = Self::key(&signed_receipt.receipt.node);
@@ -415,7 +422,8 @@ impl OnecoinLedger {
         let balance = self.balances.entry(node_key).or_insert(0);
         *balance = balance.saturating_add(reward_atoms);
         self.total_issued_atoms = self.total_issued_atoms.saturating_add(reward_atoms);
-        self.rewarded_receipts.insert(receipt_key, reward_atoms);
+        self.rewarded_receipts
+            .insert(hex::encode(receipt_key), reward_atoms);
         Ok(ContributionReward {
             node: signed_receipt.receipt.node.clone(),
             receipt_hash: receipt_key,
@@ -434,8 +442,9 @@ impl OnecoinLedger {
         }
         let fee = tx
             .amount_atoms
-            .saturating_mul(fee_bps as u128)
-            .saturating_div(10_000);
+            .checked_mul(fee_bps as u128)
+            .ok_or_else(|| "ONEBANK fee calculation overflow".to_string())?
+            / 10_000;
         let sender_key = AweId::from_public_key(sender_public_key).to_hex();
         let recipient_key = hex::encode(tx.recipient);
         if !self.members.contains_key(&sender_key) || !self.members.contains_key(&recipient_key) {
@@ -449,19 +458,32 @@ impl OnecoinLedger {
             return Err("invalid ONECOIN signature".into());
         }
         let sender_balance = self.balances.get(&sender_key).copied().unwrap_or(0);
-        let total = tx.amount_atoms.saturating_add(fee);
+        let total = tx
+            .amount_atoms
+            .checked_add(fee)
+            .ok_or_else(|| "transaction total overflows ONECOIN amount range".to_string())?;
         if sender_balance < total {
             return Err("insufficient ONECOIN balance including ONEBANK fee".into());
         }
+        let recipient_balance = self.balances.get(&recipient_key).copied().unwrap_or(0);
+        let recipient_after = recipient_balance
+            .checked_add(tx.amount_atoms)
+            .ok_or_else(|| "recipient balance would overflow".to_string())?;
+        let fees_after = self
+            .collected_fee_atoms
+            .checked_add(fee)
+            .ok_or_else(|| "collected ONEBANK fees would overflow".to_string())?;
+        let next_nonce = expected_nonce
+            .checked_add(1)
+            .ok_or_else(|| "sender nonce overflow".to_string())?;
+
+        // Commit the state only after every arithmetic and transaction check has
+        // succeeded, so a rejected transaction cannot partially mutate balances.
         self.balances
             .insert(sender_key.clone(), sender_balance - total);
-        let recipient_balance = self.balances.get(&recipient_key).copied().unwrap_or(0);
-        self.balances.insert(
-            recipient_key,
-            recipient_balance.saturating_add(tx.amount_atoms),
-        );
-        self.collected_fee_atoms = self.collected_fee_atoms.saturating_add(fee);
-        self.nonces.insert(sender_key, expected_nonce + 1);
+        self.balances.insert(recipient_key, recipient_after);
+        self.collected_fee_atoms = fees_after;
+        self.nonces.insert(sender_key, next_nonce);
         Ok((tx.id(), fee))
     }
 
@@ -484,14 +506,30 @@ impl OnecoinLedger {
         self.ensure_member(&sender_id);
         self.ensure_member(recipient);
         let tx_id = tx.id();
-        if self.received_transactions.contains_key(&tx_id) {
+        if self.received_transactions.contains_key(&hex::encode(tx_id)) {
             return Ok(false);
+        }
+        let sender_key = Self::key(&sender_id);
+        if self
+            .received_nonces
+            .get(&sender_key)
+            .is_some_and(|nonces| nonces.contains(&tx.nonce))
+        {
+            return Err("sender nonce has already been used by a different transfer".into());
         }
         let recipient_key = Self::key(recipient);
         let balance = self.balances.get(&recipient_key).copied().unwrap_or(0);
-        self.balances
-            .insert(recipient_key, balance.saturating_add(tx.amount_atoms));
-        self.received_transactions.insert(tx_id, tx.amount_atoms);
+        let recipient_after = balance
+            .checked_add(tx.amount_atoms)
+            .ok_or_else(|| "recipient balance would overflow".to_string())?;
+
+        self.balances.insert(recipient_key, recipient_after);
+        self.received_nonces
+            .entry(sender_key)
+            .or_default()
+            .insert(tx.nonce);
+        self.received_transactions
+            .insert(hex::encode(tx_id), tx.amount_atoms);
         Ok(true)
     }
 
@@ -515,18 +553,24 @@ impl OnecoinLedger {
         if !tx.verify(sender_public_key) {
             return Err("invalid ONECOIN signature".into());
         }
+
         let sender_balance = self.balances.get(&sender_key).copied().unwrap_or(0);
         if sender_balance < tx.amount_atoms {
             return Err("insufficient ONECOIN balance".into());
         }
-        let sender_after = sender_balance - tx.amount_atoms;
-        self.balances.insert(sender_key.clone(), sender_after);
         let recipient_balance = self.balances.get(&recipient_key).copied().unwrap_or(0);
-        self.balances.insert(
-            recipient_key,
-            recipient_balance.saturating_add(tx.amount_atoms),
-        );
-        self.nonces.insert(sender_key, expected_nonce + 1);
+        let recipient_after = recipient_balance
+            .checked_add(tx.amount_atoms)
+            .ok_or_else(|| "recipient balance would overflow".to_string())?;
+        let next_nonce = expected_nonce
+            .checked_add(1)
+            .ok_or_else(|| "sender nonce overflow".to_string())?;
+
+        // Complete every fallible check before mutating balances or nonce.
+        self.balances
+            .insert(sender_key.clone(), sender_balance - tx.amount_atoms);
+        self.balances.insert(recipient_key, recipient_after);
+        self.nonces.insert(sender_key, next_nonce);
         Ok(tx.id())
     }
 }
@@ -539,6 +583,21 @@ mod tests {
 
     fn id(name: &str) -> Identity {
         Identity::generate(Username::new(name).unwrap())
+    }
+
+    #[test]
+    fn ledger_with_receipts_and_received_transactions_is_json_serializable() {
+        let mut ledger = OnecoinLedger::default();
+        let tx_id = [0x11u8; 32];
+        let receipt_id = [0x22u8; 32];
+        ledger.received_transactions.insert(hex::encode(tx_id), 17);
+        ledger.rewarded_receipts.insert(hex::encode(receipt_id), 29);
+
+        let bytes =
+            serde_json::to_vec(&ledger).expect("ledger with binary hashes must serialize to JSON");
+        let restored: OnecoinLedger =
+            serde_json::from_slice(&bytes).expect("ledger with hash keys must deserialize");
+        assert_eq!(restored, ledger);
     }
 
     #[test]
@@ -632,6 +691,72 @@ mod tests {
         l.mint_verified_contribution_reward(&signed).unwrap();
         assert_eq!(l.balance_atoms(&a.public.awe_id), before + expected);
         assert!(l.mint_verified_contribution_reward(&signed).is_err());
+    }
+
+    #[test]
+    fn receive_transfer_is_idempotent_and_rejects_reused_sender_nonce() {
+        let sender = id("receive-sender");
+        let recipient = id("receive-recipient");
+        let mut ledger = OnecoinLedger::default();
+        ledger
+            .initialize_genesis(std::slice::from_ref(&recipient.public.awe_id))
+            .unwrap();
+        let tx =
+            OnecoinTransaction::new(&sender, 0, &recipient.public.awe_id, ATOMS_PER_COIN, None);
+        assert!(ledger
+            .receive_transfer(&tx, &sender.public.public_key, &recipient.public.awe_id)
+            .unwrap());
+        assert!(!ledger
+            .receive_transfer(&tx, &sender.public.public_key, &recipient.public.awe_id)
+            .unwrap());
+        assert_eq!(
+            ledger.balance_atoms(&recipient.public.awe_id),
+            INITIAL_GENESIS_ALLOCATION + ATOMS_PER_COIN
+        );
+
+        // Receivers may see nonces out of order when earlier transfers went to
+        // other nodes, but the same sender nonce cannot credit one wallet twice.
+        let future = OnecoinTransaction::new(&sender, 2, &recipient.public.awe_id, 1, None);
+        assert!(ledger
+            .receive_transfer(&future, &sender.public.public_key, &recipient.public.awe_id)
+            .unwrap());
+        let conflict = OnecoinTransaction::new(&sender, 2, &recipient.public.awe_id, 2, None);
+        assert!(ledger
+            .receive_transfer(
+                &conflict,
+                &sender.public.public_key,
+                &recipient.public.awe_id
+            )
+            .is_err());
+        assert_eq!(
+            ledger.balance_atoms(&recipient.public.awe_id),
+            INITIAL_GENESIS_ALLOCATION + ATOMS_PER_COIN + 1
+        );
+    }
+
+    #[test]
+    fn transfer_overflow_is_rejected_without_mutating_ledger() {
+        let sender = id("overflow-sender");
+        let recipient = id("overflow-recipient");
+        let mut ledger = OnecoinLedger::default();
+        ledger
+            .initialize_genesis(&[
+                sender.public.awe_id.clone(),
+                recipient.public.awe_id.clone(),
+            ])
+            .unwrap();
+        let sender_before = ledger.balance_atoms(&sender.public.awe_id);
+        let recipient_before = ledger.balance_atoms(&recipient.public.awe_id);
+        let tx = OnecoinTransaction::new(&sender, 0, &recipient.public.awe_id, u128::MAX, None);
+        assert!(ledger
+            .apply_transfer_with_fee(&tx, &sender.public.public_key, 100)
+            .is_err());
+        assert_eq!(ledger.balance_atoms(&sender.public.awe_id), sender_before);
+        assert_eq!(
+            ledger.balance_atoms(&recipient.public.awe_id),
+            recipient_before
+        );
+        assert_eq!(ledger.nonces[&sender.public.awe_id.to_hex()], 0);
     }
 
     #[test]

@@ -239,8 +239,10 @@ impl AweNetDesktop {
         ui.label(format!(
             "Balance: {} ONECOIN",
             self.wallet
-                .get("balance_coins")
-                .map(ToString::to_string)
+                .get("balance_coins_exact")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| self.wallet.get("balance_coins").map(ToString::to_string))
                 .unwrap_or_else(|| "0".into())
         ));
         ui.label(format!(

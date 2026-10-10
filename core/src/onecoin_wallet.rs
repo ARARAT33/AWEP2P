@@ -141,13 +141,22 @@ impl OnecoinWallet {
     pub fn create_exchange_order(
         &self,
         offer: &P2POffer,
+        offer_owner_public_key: &[u8; 32],
         buyer: AweId,
         seller: AweId,
         amount_atoms: u128,
         fee_bps: u16,
         now_unix: u64,
     ) -> Result<ExchangeOrder, String> {
-        ExchangeOrder::from_offer(offer, buyer, seller, amount_atoms, fee_bps, now_unix)
+        ExchangeOrder::from_offer(
+            offer,
+            offer_owner_public_key,
+            buyer,
+            seller,
+            amount_atoms,
+            fee_bps,
+            now_unix,
+        )
     }
 }
 

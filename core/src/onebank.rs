@@ -131,7 +131,7 @@ impl TierBenefits {
                 data_centre_management: false,
                 data_group_management: false,
                 centre_group_management: false,
-                minimum_monthly_atoms: 40 * ATOMS_PER_COIN,
+                minimum_monthly_atoms: 45 * ATOMS_PER_COIN,
             },
             UserTier::NetPro => Self {
                 tier,
@@ -241,11 +241,8 @@ pub fn classify_tier(r: &ResourceContribution) -> UserTier {
         || r.ram_bytes > 0
         || r.gpu_units > 0
         || r.bandwidth_bytes > 0
-        || r.online_hours > 0
         || r.node_count > 0
         || r.server_count > 0
-        || r.uptime_bps > 0
-        || r.utilization_bps > 0
     {
         return UserTier::Basic;
     }
@@ -450,25 +447,53 @@ pub struct ExchangeOrder {
 impl ExchangeOrder {
     pub fn from_offer(
         offer: &P2POffer,
+        offer_owner_public_key: &[u8; 32],
         buyer: AweId,
         seller: AweId,
         amount_atoms: u128,
         fee_bps: u16,
         now_unix: u64,
     ) -> Result<Self, String> {
+        if !offer.verify(offer_owner_public_key, now_unix) {
+            return Err("exchange offer signature is invalid or the offer has expired".into());
+        }
+        if fee_bps > 500 {
+            return Err("ONEBANK fee cannot exceed 5%".into());
+        }
         if amount_atoms == 0 || amount_atoms > offer.amount_atoms {
             return Err("invalid order amount".into());
         }
-        let coins = amount_atoms.saturating_div(ATOMS_PER_COIN);
-        let fiat_minor = coins.saturating_mul(offer.price_minor_per_coin as u128);
+        match offer.side {
+            ExchangeSide::Sell if offer.owner != seller => {
+                return Err("seller does not own the sell offer".into());
+            }
+            ExchangeSide::Buy if offer.owner != buyer => {
+                return Err("buyer does not own the buy offer".into());
+            }
+            _ => {}
+        }
+        let price = offer.price_minor_per_coin as u128;
+        let whole_coins = amount_atoms / ATOMS_PER_COIN;
+        let fractional_atoms = amount_atoms % ATOMS_PER_COIN;
+        let whole_fiat = whole_coins
+            .checked_mul(price)
+            .ok_or_else(|| "exchange fiat amount is too large".to_string())?;
+        let fractional_fiat = fractional_atoms
+            .checked_mul(price)
+            .ok_or_else(|| "exchange fractional fiat amount is too large".to_string())?
+            / ATOMS_PER_COIN;
+        let fiat_minor = whole_fiat
+            .checked_add(fractional_fiat)
+            .ok_or_else(|| "exchange fiat amount is too large".to_string())?;
         let fee = amount_atoms
-            .saturating_mul(fee_bps as u128)
-            .saturating_div(10_000);
+            .checked_mul(fee_bps as u128)
+            .ok_or_else(|| "exchange fee calculation overflow".to_string())?
+            / 10_000;
+        let canonical_order =
+            serde_json::to_vec(&(offer.id, &buyer, &seller, amount_atoms, now_unix))
+                .map_err(|_| "exchange order serialization failed".to_string())?;
         Ok(Self {
-            id: *blake3::hash(
-                &serde_json::to_vec(&(offer.id, &buyer, &seller, amount_atoms, now_unix)).unwrap(),
-            )
-            .as_bytes(),
+            id: *blake3::hash(&canonical_order).as_bytes(),
             offer_id: offer.id,
             buyer,
             seller,
@@ -485,6 +510,7 @@ impl ExchangeOrder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::identity::Username;
     #[test]
     fn tiers_follow_contribution() {
         assert_eq!(
@@ -501,6 +527,124 @@ mod tests {
         r.ram_bytes = 8 * 1024 * 1024 * 1024;
         r.bandwidth_bytes = 1_000_000_000_000;
         assert_eq!(classify_tier(&r), UserTier::NetPlus);
+    }
+
+    #[test]
+    fn net_plus_benefit_matches_default_reward_policy() {
+        let benefits = TierBenefits::for_tier(UserTier::NetPlus, &ResourceContribution::default());
+        let policy = RewardPolicy::default();
+        assert_eq!(
+            benefits.minimum_monthly_atoms,
+            policy.monthly_minimum(UserTier::NetPlus)
+        );
+        assert_eq!(benefits.minimum_monthly_atoms, 45 * ATOMS_PER_COIN);
+    }
+
+    #[test]
+    fn uptime_claim_alone_does_not_unlock_paid_tier() {
+        let contribution = ResourceContribution {
+            online_hours: 24,
+            uptime_bps: 10_000,
+            utilization_bps: 10_000,
+            ..Default::default()
+        };
+        assert_eq!(classify_tier(&contribution), UserTier::Free);
+    }
+
+    #[test]
+    fn exchange_order_rejects_arithmetic_overflow() {
+        let seller = Identity::generate(Username::new("overflow-seller").unwrap());
+        let buyer = Identity::generate(Username::new("overflow-buyer").unwrap());
+        let offer = P2POffer::new(
+            &seller,
+            ExchangeSide::Sell,
+            u128::MAX,
+            u64::MAX,
+            "USD".to_string(),
+            FiatRail::BankTransfer,
+            None,
+            u64::MAX,
+        )
+        .unwrap();
+        assert!(ExchangeOrder::from_offer(
+            &offer,
+            &seller.public.public_key,
+            buyer.public.awe_id,
+            seller.public.awe_id,
+            u128::MAX,
+            100,
+            1,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn fractional_coin_exchange_orders_preserve_fiat_value() {
+        let seller = Identity::generate(Username::new("seller".to_string()).unwrap());
+        let buyer = Identity::generate(Username::new("buyer".to_string()).unwrap());
+        let offer = P2POffer::new(
+            &seller,
+            ExchangeSide::Sell,
+            ATOMS_PER_COIN,
+            100,
+            "USD".to_string(),
+            FiatRail::BankTransfer,
+            None,
+            u64::MAX,
+        )
+        .unwrap();
+        let order = ExchangeOrder::from_offer(
+            &offer,
+            &seller.public.public_key,
+            buyer.public.awe_id,
+            seller.public.awe_id,
+            ATOMS_PER_COIN / 2,
+            100,
+            1,
+        )
+        .unwrap();
+        assert_eq!(order.fiat_minor, 50);
+    }
+
+    #[test]
+    fn exchange_orders_reject_tampered_offers_and_excessive_fees() {
+        let seller = Identity::generate(Username::new("offer-seller".to_string()).unwrap());
+        let buyer = Identity::generate(Username::new("offer-buyer".to_string()).unwrap());
+        let offer = P2POffer::new(
+            &seller,
+            ExchangeSide::Sell,
+            ATOMS_PER_COIN,
+            100,
+            "USD".to_string(),
+            FiatRail::BankTransfer,
+            None,
+            u64::MAX,
+        )
+        .unwrap();
+
+        let mut tampered = offer.clone();
+        tampered.price_minor_per_coin = 1;
+        assert!(ExchangeOrder::from_offer(
+            &tampered,
+            &seller.public.public_key,
+            buyer.public.awe_id.clone(),
+            seller.public.awe_id.clone(),
+            ATOMS_PER_COIN / 2,
+            100,
+            1,
+        )
+        .is_err());
+
+        assert!(ExchangeOrder::from_offer(
+            &offer,
+            &seller.public.public_key,
+            buyer.public.awe_id,
+            seller.public.awe_id,
+            ATOMS_PER_COIN / 2,
+            501,
+            1,
+        )
+        .is_err());
     }
 
     #[test]

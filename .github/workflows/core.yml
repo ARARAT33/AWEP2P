@@ -15,6 +15,7 @@ on:
       - 'core/**'
       - 'apps/**'
       - 'platforms/**'
+      - 'scripts/**'
       - '.github/workflows/core.yml'
   pull_request:
     paths:
@@ -23,6 +24,7 @@ on:
       - 'core/**'
       - 'apps/**'
       - 'platforms/**'
+      - 'scripts/**'
       - '.github/workflows/core.yml'
 
 permissions:
@@ -46,6 +48,13 @@ jobs:
           components: rustfmt, clippy
       - name: Check Rust workspace formatting
         run: cargo fmt --all -- --check
+      - name: Check desktop UI JavaScript syntax
+        run: |
+          node --check apps/awe-desktop/ui/app.js
+          node --check apps/awe-desktop/ui/onecoin.js
+          node --check apps/awe-desktop/ui/vendor/qrcode.js
+      - name: Check desktop UI DOM and API contracts
+        run: node scripts/ui-contract-check.cjs
       - name: Build workspace
         run: cargo check --workspace --all-targets
       - name: Run unit and integration tests

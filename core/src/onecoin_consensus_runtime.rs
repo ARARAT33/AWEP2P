@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
-pub const ONECOIN_CONSENSUS_STREAM: u32 = 200;
+pub use crate::policy::ONECOIN_CONSENSUS_STREAM;
 pub const MAX_CONSENSUS_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_PENDING_BLOCKS: usize = 256;
 const MAX_VOTES_PER_BLOCK: usize = 4096;

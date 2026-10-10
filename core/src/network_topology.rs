@@ -85,6 +85,45 @@ pub struct CentreGroup {
     pub groups: HashSet<DataGroupId>,
 }
 
+impl DataGroup {
+    pub fn new(
+        id: impl Into<String>,
+        centres: impl IntoIterator<Item = String>,
+    ) -> Result<Self, String> {
+        let id = id.into();
+        let centre_list = centres.into_iter().collect::<Vec<_>>();
+        let unique = centre_list.iter().cloned().collect::<HashSet<_>>();
+        if unique.len() != centre_list.len() {
+            return Err("data group contains duplicate centre IDs".into());
+        }
+        if unique.len() < 3 {
+            return Err("data group must contain at least three distinct centres".into());
+        }
+        Ok(Self {
+            id,
+            centres: unique,
+        })
+    }
+}
+
+impl CentreGroup {
+    pub fn new(
+        id: impl Into<String>,
+        groups: impl IntoIterator<Item = String>,
+    ) -> Result<Self, String> {
+        let id = id.into();
+        let group_list = groups.into_iter().collect::<Vec<_>>();
+        let unique = group_list.iter().cloned().collect::<HashSet<_>>();
+        if unique.len() != group_list.len() {
+            return Err("centre group contains duplicate data-group IDs".into());
+        }
+        if unique.len() < 2 {
+            return Err("centre group must contain at least two distinct data groups".into());
+        }
+        Ok(Self { id, groups: unique })
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct AweNet {
     pub centres: HashMap<DataCentreId, DataCentre>,
@@ -114,20 +153,20 @@ impl DataCentre {
     }
 
     pub fn full_mesh(&mut self) {
+        // Use the map keys as stable node IDs. Public Node values can be
+        // mutated after insertion, so relying on node.id here can panic.
         let ids: Vec<_> = self
             .nodes
-            .values()
-            .filter(|n| n.alive)
-            .map(|n| n.id.clone())
+            .iter()
+            .filter(|(_, node)| node.alive)
+            .map(|(id, _)| id.clone())
             .collect();
         for a in &ids {
             for b in &ids {
                 if a != b {
-                    self.nodes
-                        .get_mut(a)
-                        .expect("node exists")
-                        .peers
-                        .insert(b.clone());
+                    if let Some(node) = self.nodes.get_mut(a) {
+                        node.peers.insert(b.clone());
+                    }
                 }
             }
         }
@@ -135,65 +174,25 @@ impl DataCentre {
 
     pub fn nearest(&self, from: &NodeId) -> Option<NodeId> {
         self.nodes
-            .values()
-            .filter(|n| n.alive && &n.id != from)
-            .min_by_key(|n| (n.metrics.score(), n.peers.len() as u64, n.id.clone()))
-            .map(|n| n.id.clone())
+            .iter()
+            .filter(|(id, node)| node.alive && *id != from)
+            .min_by_key(|(id, node)| (node.metrics.score(), node.peers.len() as u64, (*id).clone()))
+            .map(|(id, _)| id.clone())
     }
 
     pub fn mark_node(&mut self, id: &NodeId, alive: bool) -> Result<(), String> {
         self.nodes
             .get_mut(id)
-            .map(|n| n.alive = alive)
+            .map(|node| node.alive = alive)
             .ok_or_else(|| "node not found".into())
-    }
-
-    pub fn healthy_nodes(&self, now_unix: u64, max_age: u64) -> Vec<NodeId> {
-        self.nodes
-            .values()
-            .filter(|n| {
-                n.alive
-                    && (n.metrics.last_seen_unix == 0 || n.metrics.is_healthy(now_unix, max_age))
-            })
-            .map(|n| n.id.clone())
-            .collect()
-    }
-}
-
-impl DataGroup {
-    pub fn new(
-        id: impl Into<String>,
-        centres: impl IntoIterator<Item = DataCentreId>,
-    ) -> Result<Self, String> {
-        let centres: Vec<DataCentreId> = centres.into_iter().collect();
-        if centres.len() < 3 {
-            return Err("DataGroup requires at least 3 data centres".into());
-        }
-        Ok(Self {
-            id: id.into(),
-            centres: centres.into_iter().collect(),
-        })
-    }
-}
-
-impl CentreGroup {
-    pub fn new(
-        id: impl Into<String>,
-        groups: impl IntoIterator<Item = DataGroupId>,
-    ) -> Result<Self, String> {
-        let groups: Vec<DataGroupId> = groups.into_iter().collect();
-        if groups.len() < 2 {
-            return Err("CentreGroup requires at least 2 data groups".into());
-        }
-        Ok(Self {
-            id: id.into(),
-            groups: groups.into_iter().collect(),
-        })
     }
 }
 
 impl AweNet {
     pub fn add_centre(&mut self, d: DataCentre) -> Result<(), String> {
+        if self.centres.contains_key(&d.id) {
+            return Err("data centre ID already exists".into());
+        }
         for existing in self.centres.values() {
             if d.nodes.keys().any(|id| existing.nodes.contains_key(id)) {
                 return Err("node IDs must be globally unique across data centres".into());
@@ -204,7 +203,17 @@ impl AweNet {
     }
 
     pub fn add_data_group(&mut self, group: DataGroup) -> Result<(), String> {
-        if !group.centres.iter().all(|id| self.centres.contains_key(id)) {
+        if self.data_groups.contains_key(&group.id) {
+            return Err(format!("duplicate data-group ID: {}", group.id));
+        }
+        if group.centres.len() < 3 {
+            return Err("data group must contain at least three distinct centres".into());
+        }
+        if group
+            .centres
+            .iter()
+            .any(|id| !self.centres.contains_key(id))
+        {
             return Err("data group references an unknown centre".into());
         }
         self.data_groups.insert(group.id.clone(), group);
@@ -212,10 +221,16 @@ impl AweNet {
     }
 
     pub fn add_centre_group(&mut self, group: CentreGroup) -> Result<(), String> {
-        if !group
+        if self.centre_groups.contains_key(&group.id) {
+            return Err(format!("duplicate centre-group ID: {}", group.id));
+        }
+        if group.groups.len() < 2 {
+            return Err("centre group must contain at least two distinct data groups".into());
+        }
+        if group
             .groups
             .iter()
-            .all(|id| self.data_groups.contains_key(id))
+            .any(|id| !self.data_groups.contains_key(id))
         {
             return Err("centre group references an unknown data group".into());
         }
@@ -232,17 +247,23 @@ impl AweNet {
         if a == b || !self.centres.contains_key(a) || !self.centres.contains_key(b) {
             return Err("invalid data-centre pair".into());
         }
-        let left: Vec<_> = self.centres[a]
+        let left: Vec<_> = self
+            .centres
+            .get(a)
+            .ok_or("source centre not found")?
             .nodes
-            .values()
-            .filter(|n| n.alive)
-            .map(|n| n.id.clone())
+            .iter()
+            .filter(|(_, node)| node.alive)
+            .map(|(id, _)| id.clone())
             .collect();
-        let right: Vec<_> = self.centres[b]
+        let right: Vec<_> = self
+            .centres
+            .get(b)
+            .ok_or("target centre not found")?
             .nodes
-            .values()
-            .filter(|n| n.alive)
-            .map(|n| n.id.clone())
+            .iter()
+            .filter(|(_, node)| node.alive)
+            .map(|(id, _)| id.clone())
             .collect();
         if left.is_empty() || right.is_empty() {
             return Err("both centres must contain live nodes".into());
@@ -254,18 +275,14 @@ impl AweNet {
                     for y in &right {
                         self.centres
                             .get_mut(a)
-                            .unwrap()
-                            .nodes
-                            .get_mut(x)
-                            .unwrap()
+                            .and_then(|centre| centre.nodes.get_mut(x))
+                            .ok_or("source node changed while connecting centres")?
                             .peers
                             .insert(y.clone());
                         self.centres
                             .get_mut(b)
-                            .unwrap()
-                            .nodes
-                            .get_mut(y)
-                            .unwrap()
+                            .and_then(|centre| centre.nodes.get_mut(y))
+                            .ok_or("target node changed while connecting centres")?
                             .peers
                             .insert(x.clone());
                     }
@@ -278,23 +295,25 @@ impl AweNet {
                 }
                 let target = right
                     .iter()
-                    .min_by_key(|id| self.centres[b].nodes[*id].metrics.score())
-                    .unwrap()
-                    .clone();
+                    .filter_map(|id| {
+                        self.centres
+                            .get(b)
+                            .and_then(|centre| centre.nodes.get(id))
+                            .map(|node| (node.metrics.score(), id.clone()))
+                    })
+                    .min_by_key(|(score, id)| (*score, id.clone()))
+                    .map(|(_, id)| id)
+                    .ok_or("target centre has no live nodes")?;
                 self.centres
                     .get_mut(a)
-                    .unwrap()
-                    .nodes
-                    .get_mut(&relay_node)
-                    .unwrap()
+                    .and_then(|centre| centre.nodes.get_mut(&relay_node))
+                    .ok_or("relay node not found")?
                     .peers
                     .insert(target.clone());
                 self.centres
                     .get_mut(b)
-                    .unwrap()
-                    .nodes
-                    .get_mut(&target)
-                    .unwrap()
+                    .and_then(|centre| centre.nodes.get_mut(&target))
+                    .ok_or("target node not found")?
                     .peers
                     .insert(relay_node.clone());
                 (
@@ -303,9 +322,10 @@ impl AweNet {
                 )
             }
         };
-        self.centres.get_mut(a).unwrap().links.insert(b.into());
-        self.centres.get_mut(b).unwrap().links.insert(a.into());
-        self.centres.get_mut(a).unwrap().link_state.insert(
+
+        let source = self.centres.get_mut(a).ok_or("source centre not found")?;
+        source.links.insert(b.into());
+        source.link_state.insert(
             b.into(),
             CentreLink {
                 mode: stored_mode.clone(),
@@ -313,7 +333,9 @@ impl AweNet {
                 healthy: true,
             },
         );
-        self.centres.get_mut(b).unwrap().link_state.insert(
+        let target = self.centres.get_mut(b).ok_or("target centre not found")?;
+        target.links.insert(a.into());
+        target.link_state.insert(
             a.into(),
             CentreLink {
                 mode: stored_mode,
@@ -328,127 +350,182 @@ impl AweNet {
         let state = self
             .centres
             .get(a)
-            .and_then(|c| c.link_state.get(b))
+            .and_then(|centre| centre.link_state.get(b))
             .cloned()
             .ok_or("link not found")?;
-        let candidate = self.centres[a]
+        let reciprocal_state = self
+            .centres
+            .get(b)
+            .and_then(|centre| centre.link_state.get(a))
+            .cloned()
+            .ok_or("reciprocal link not found")?;
+        if state.relays != reciprocal_state.relays {
+            return Err("data-centre link relay state is inconsistent".into());
+        }
+        let candidate = self
+            .centres
+            .get(a)
+            .ok_or("source centre not found")?
             .nodes
-            .values()
-            .filter(|n| n.alive && !state.relays.contains(&n.id))
-            .min_by_key(|n| n.metrics.score())
-            .map(|n| n.id.clone())
+            .iter()
+            .filter(|(id, node)| node.alive && !state.relays.contains(id))
+            .min_by_key(|(id, node)| (node.metrics.score(), (*id).clone()))
+            .map(|(id, _)| id.clone())
             .ok_or("no healthy relay available")?;
-        let target = self.centres[b]
+        let target = self
+            .centres
+            .get(b)
+            .ok_or("target centre not found")?
             .nodes
-            .values()
-            .filter(|n| n.alive)
-            .min_by_key(|n| n.metrics.score())
-            .map(|n| n.id.clone())
+            .iter()
+            .filter(|(_, node)| node.alive)
+            .min_by_key(|(id, node)| (node.metrics.score(), (*id).clone()))
+            .map(|(id, _)| id.clone())
             .ok_or("target centre has no live nodes")?;
+
         self.centres
             .get_mut(a)
-            .unwrap()
-            .nodes
-            .get_mut(&candidate)
-            .unwrap()
+            .and_then(|centre| centre.nodes.get_mut(&candidate))
+            .ok_or("selected relay node disappeared")?
             .peers
             .insert(target.clone());
         self.centres
             .get_mut(b)
-            .unwrap()
-            .nodes
-            .get_mut(&target)
-            .unwrap()
+            .and_then(|centre| centre.nodes.get_mut(&target))
+            .ok_or("target node disappeared")?
             .peers
             .insert(candidate.clone());
         self.centres
             .get_mut(a)
-            .unwrap()
-            .link_state
-            .get_mut(b)
-            .unwrap()
+            .and_then(|centre| centre.link_state.get_mut(b))
+            .ok_or("source link state disappeared")?
             .relays
             .push(candidate.clone());
         self.centres
             .get_mut(b)
-            .unwrap()
-            .link_state
-            .get_mut(a)
-            .unwrap()
+            .and_then(|centre| centre.link_state.get_mut(a))
+            .ok_or("reciprocal link state disappeared")?
             .relays
             .push(candidate.clone());
         Ok(candidate)
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        for (id, c) in &self.centres {
-            for n in c.nodes.values() {
-                for peer in &n.peers {
-                    if !self.centres.values().any(|dc| dc.nodes.contains_key(peer)) {
-                        return Err(format!("node {id} references unknown peer {peer}"));
+        for (id, centre) in &self.centres {
+            if centre.id != *id {
+                return Err(format!("centre map key does not match centre ID: {id}"));
+            }
+            for (node_id, node) in &centre.nodes {
+                if node.id != *node_id {
+                    return Err(format!(
+                        "node map key does not match node ID in centre {id}: {node_id}"
+                    ));
+                }
+                for peer in &node.peers {
+                    if !self
+                        .centres
+                        .values()
+                        .any(|other| other.nodes.contains_key(peer))
+                    {
+                        return Err(format!("node {node_id} references unknown peer {peer}"));
                     }
                 }
             }
-        }
-        for g in self.data_groups.values() {
-            if g.centres.len() < 3 || !g.centres.iter().all(|id| self.centres.contains_key(id)) {
-                return Err("invalid data group".into());
+            for linked_id in &centre.links {
+                let Some(linked) = self.centres.get(linked_id) else {
+                    return Err(format!("centre {id} references unknown link {linked_id}"));
+                };
+                if !centre.link_state.contains_key(linked_id)
+                    || !linked.links.contains(id)
+                    || !linked.link_state.contains_key(id)
+                {
+                    return Err(format!(
+                        "centre link between {id} and {linked_id} is not reciprocal"
+                    ));
+                }
             }
         }
-        for g in self.centre_groups.values() {
-            if g.groups.len() < 2 || !g.groups.iter().all(|id| self.data_groups.contains_key(id)) {
-                return Err("invalid centre group".into());
+        for (id, group) in &self.data_groups {
+            if group.id != *id
+                || group.centres.len() < 3
+                || !group
+                    .centres
+                    .iter()
+                    .all(|centre| self.centres.contains_key(centre))
+            {
+                return Err(format!("invalid data group: {id}"));
+            }
+        }
+        for (id, group) in &self.centre_groups {
+            if group.id != *id
+                || group.groups.len() < 2
+                || !group
+                    .groups
+                    .iter()
+                    .all(|group_id| self.data_groups.contains_key(group_id))
+            {
+                return Err(format!("invalid centre group: {id}"));
             }
         }
         Ok(())
     }
 
     pub fn route(&self, src: &NodeId, dst: &NodeId) -> Option<Vec<NodeId>> {
+        let is_live_node = |id: &NodeId| {
+            self.centres
+                .values()
+                .any(|centre| centre.nodes.get(id).is_some_and(|node| node.alive))
+        };
+        if !is_live_node(src) || !is_live_node(dst) {
+            return None;
+        }
         if src == dst {
             return Some(vec![src.clone()]);
         }
+
+        // Map keys are the canonical node IDs; Node values are public and may
+        // have been modified since insertion, so route from the keys.
         let mut adjacency: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
-        for dc in self.centres.values() {
-            for n in dc.nodes.values().filter(|n| n.alive) {
-                adjacency.entry(n.id.clone()).or_default().extend(
-                    n.peers
-                        .iter()
-                        .filter(|p| {
-                            self.centres
-                                .values()
-                                .any(|other| other.nodes.get(*p).map(|x| x.alive).unwrap_or(false))
-                        })
-                        .cloned(),
-                );
+        for centre in self.centres.values() {
+            for (node_id, node) in centre.nodes.iter().filter(|(_, node)| node.alive) {
+                let neighbours = node
+                    .peers
+                    .iter()
+                    .filter(|peer| is_live_node(peer))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                adjacency.insert(node_id.clone(), neighbours);
             }
         }
-        let mut q = VecDeque::from([src.clone()]);
-        let mut prev: HashMap<NodeId, Option<NodeId>> = HashMap::from([(src.clone(), None)]);
-        while let Some(x) = q.pop_front() {
-            if &x == dst {
+
+        let mut queue = VecDeque::from([src.clone()]);
+        let mut previous: HashMap<NodeId, Option<NodeId>> = HashMap::from([(src.clone(), None)]);
+        while let Some(current) = queue.pop_front() {
+            if &current == dst {
                 break;
             }
-            for p in adjacency.get(&x).into_iter().flatten() {
-                if !prev.contains_key(p) {
-                    prev.insert(p.clone(), Some(x.clone()));
-                    q.push_back(p.clone());
+            for peer in adjacency.get(&current).into_iter().flatten() {
+                if !previous.contains_key(peer) {
+                    previous.insert(peer.clone(), Some(current.clone()));
+                    queue.push_back(peer.clone());
                 }
             }
         }
-        if !prev.contains_key(dst) {
+        if !previous.contains_key(dst) {
             return None;
         }
-        let mut out = Vec::new();
-        let mut x = dst.clone();
+
+        let mut route = Vec::new();
+        let mut current = dst.clone();
         loop {
-            out.push(x.clone());
-            match prev[&x].clone() {
-                Some(p) => x = p,
+            route.push(current.clone());
+            match previous.get(&current).cloned().flatten() {
+                Some(parent) => current = parent,
                 None => break,
             }
         }
-        out.reverse();
-        Some(out)
+        route.reverse();
+        Some(route)
     }
 }
 
@@ -475,6 +552,53 @@ mod tests {
         assert!(n.add_centre(a).is_ok());
         assert!(n.add_centre(b).is_err());
     }
+    #[test]
+    fn duplicate_data_centre_ids_are_rejected() {
+        let mut network = AweNet::default();
+        assert!(network.add_centre(DataCentre::new("same")).is_ok());
+        assert!(network.add_centre(DataCentre::new("same")).is_err());
+        assert_eq!(network.centres.len(), 1);
+    }
+
+    #[test]
+    fn groups_require_distinct_members_and_ids_cannot_overwrite() {
+        assert!(DataGroup::new("g", ["a".to_string(), "a".to_string(), "b".to_string()]).is_err());
+        assert!(CentreGroup::new("cg", ["g".to_string(), "g".to_string()]).is_err());
+
+        let mut network = AweNet::default();
+        for id in ["a", "b", "c"] {
+            network.add_centre(DataCentre::new(id)).unwrap();
+        }
+        let group = DataGroup::new("group", ["a".into(), "b".into(), "c".into()]).unwrap();
+        assert!(network.add_data_group(group.clone()).is_ok());
+        assert!(network.add_data_group(group).is_err());
+        assert_eq!(network.data_groups.len(), 1);
+    }
+
+    #[test]
+    fn routes_require_known_live_endpoints_and_use_canonical_keys() {
+        let mut network = AweNet::default();
+        let mut centre = DataCentre::new("centre");
+        centre.add_node(Node::new("a"));
+        centre.add_node(Node::new("b"));
+        let mut dead = Node::new("dead");
+        dead.alive = false;
+        centre.add_node(dead);
+        centre.nodes.get_mut("a").unwrap().peers.insert("b".into());
+        centre.nodes.get_mut("b").unwrap().peers.insert("a".into());
+        network.add_centre(centre).unwrap();
+
+        let a = "a".to_string();
+        let b = "b".to_string();
+        let dead = "dead".to_string();
+        let missing = "missing".to_string();
+
+        assert_eq!(network.route(&a, &b), Some(vec![a.clone(), b.clone()]));
+        assert_eq!(network.route(&a, &a), Some(vec![a.clone()]));
+        assert_eq!(network.route(&missing, &b), None);
+        assert_eq!(network.route(&a, &dead), None);
+    }
+
     #[test]
     fn relay_failover_adds_backup() {
         let mut n = AweNet::default();

@@ -192,7 +192,9 @@ impl AweSecret {
         if identity.public.awe_id.to_hex() != self.awe_id {
             return Err("Mismatching AWE-ID in .awesecret".to_string());
         }
-        if identity.public.public_key != hex::decode(&self.public_key).unwrap().as_slice() {
+        let public_bytes = hex::decode(&self.public_key)
+            .map_err(|e| format!("Invalid public key encoding in .awesecret: {e}"))?;
+        if identity.public.public_key != public_bytes.as_slice() {
             return Err("Mismatching public key in .awesecret".to_string());
         }
         Ok(identity)

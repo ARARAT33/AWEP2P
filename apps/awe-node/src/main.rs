@@ -7,11 +7,12 @@ use awep2p_core::diagnostics::{NodeDiagnostics, NodeMetrics};
 use awep2p_core::federation::{
     self, AweNetConfig, AweNodeConfig, DataCentreConfig, DataGroupConfig,
 };
+use awep2p_core::host::{AweHost, HostPolicy, SiteManifest};
 use awep2p_core::identity::{AweId, AweSecret, Identity, LocalVault, Username};
 use awep2p_core::lan_mesh::LanPeerBeacon;
 use awep2p_core::messenger::format_uid;
 use awep2p_core::network::{format_node_descriptor, Node};
-use awep2p_core::onebank::{classify_tier, ResourceContribution};
+use awep2p_core::onebank::{classify_tier, ExchangeSide, FiatRail, P2POffer, ResourceContribution};
 use awep2p_core::onecoin::{OnecoinLedger, OnecoinTransaction, ATOMS_PER_COIN};
 use awep2p_core::onecoin_consensus_runtime::{
     OnecoinConsensusMessage, OnecoinConsensusRuntime, ONECOIN_CONSENSUS_STREAM,
@@ -19,13 +20,13 @@ use awep2p_core::onecoin_consensus_runtime::{
 use awep2p_core::policy::{self, NetworkPolicy};
 use awep2p_core::reputation::NodeReputation;
 use awep2p_core::storage::{encode_shards, recover_shards, LocalNodeStore, StoragePolicy};
-use awep2p_core::store::{AppCapability, Store};
+use awep2p_core::store::{AWEPackage, AppCapability, AppKind, Store};
 use awep2p_core::supervisor::{PeerSupervisor, SupervisorConfig};
 use std::{
     collections::BTreeMap,
     env, fs,
     net::SocketAddr,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -47,7 +48,103 @@ type PolicyState = Arc<Mutex<NetworkPolicy>>;
 type CommunityState = Arc<Mutex<serde_json::Value>>;
 type ConsensusState = Arc<Mutex<Option<OnecoinConsensusRuntime>>>;
 type OnecoinLedgerState = Arc<Mutex<OnecoinLedger>>;
+type OnecoinPendingState = Arc<Mutex<BTreeMap<String, OnecoinTransaction>>>;
 type ContributionState = Arc<Mutex<ResourceContribution>>;
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct OnecoinTransferAck {
+    transaction_id: String,
+    recipient: [u8; 32],
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct PersistedOnecoinState {
+    format_version: u8,
+    ledger: OnecoinLedger,
+    #[serde(default)]
+    pending_transfers: BTreeMap<String, OnecoinTransaction>,
+}
+
+impl Default for PersistedOnecoinState {
+    fn default() -> Self {
+        Self {
+            format_version: 1,
+            ledger: OnecoinLedger::default(),
+            pending_transfers: BTreeMap::new(),
+        }
+    }
+}
+
+fn load_persisted_onecoin_state(path: &Path) -> Result<PersistedOnecoinState, String> {
+    if !path.exists() {
+        return Ok(PersistedOnecoinState::default());
+    }
+    let bytes = fs::read(path).map_err(|error| format!("cannot read ONECOIN state: {error}"))?;
+    if let Ok(state) = serde_json::from_slice::<PersistedOnecoinState>(&bytes) {
+        if state.format_version != 1 {
+            return Err("unsupported persisted ONECOIN state version".into());
+        }
+        for (id, transaction) in &state.pending_transfers {
+            if id != &hex::encode(transaction.id()) || !transaction.verify(&transaction.sender) {
+                return Err("persisted ONECOIN outbox contains an invalid transaction".into());
+            }
+        }
+        return Ok(state);
+    }
+    // Migrate the previous format, which stored only the ledger at this path.
+    serde_json::from_slice::<OnecoinLedger>(&bytes)
+        .map(|ledger| PersistedOnecoinState {
+            ledger,
+            ..PersistedOnecoinState::default()
+        })
+        .map_err(|_| "persisted ONECOIN state is corrupt; refusing to reset wallet balances".into())
+}
+
+fn persist_onecoin_state(
+    path: &Path,
+    ledger: &OnecoinLedger,
+    pending_transfers: &BTreeMap<String, OnecoinTransaction>,
+) -> Result<(), String> {
+    let state = PersistedOnecoinState {
+        format_version: 1,
+        ledger: ledger.clone(),
+        pending_transfers: pending_transfers.clone(),
+    };
+    let bytes = serde_json::to_vec_pretty(&state)
+        .map_err(|error| format!("cannot serialize ONECOIN state: {error}"))?;
+    let temporary = path.with_extension(format!("json.tmp-{}", std::process::id()));
+    if let Err(error) = fs::write(&temporary, bytes) {
+        let _ = fs::remove_file(&temporary);
+        return Err(format!("cannot write temporary ONECOIN state: {error}"));
+    }
+    if let Err(error) = fs::rename(&temporary, path) {
+        let _ = fs::remove_file(&temporary);
+        return Err(format!("cannot commit ONECOIN state atomically: {error}"));
+    }
+    Ok(())
+}
+
+fn remove_pending_onecoin_transfer(
+    path: &Path,
+    ledger_state: &OnecoinLedgerState,
+    pending_state: &OnecoinPendingState,
+    transaction_id: &str,
+) -> Result<bool, String> {
+    let ledger = ledger_state
+        .lock()
+        .map_err(|_| "ONECOIN ledger lock failed".to_string())?;
+    let mut pending = pending_state
+        .lock()
+        .map_err(|_| "ONECOIN outbox lock failed".to_string())?;
+    let mut next_pending = pending.clone();
+    if next_pending.remove(transaction_id).is_none() {
+        return Ok(false);
+    }
+    persist_onecoin_state(path, &ledger, &next_pending)?;
+    *pending = next_pending;
+    Ok(true)
+}
+type HostState = Arc<Mutex<AweHost>>;
 
 #[derive(Clone)]
 struct UiState {
@@ -61,10 +158,13 @@ struct UiState {
     policy_state: PolicyState,
     community: CommunityState,
     onecoin_ledger: OnecoinLedgerState,
+    onecoin_outbox: OnecoinPendingState,
     onecoin_path: PathBuf,
     onecoin_offers_path: PathBuf,
     contribution: ContributionState,
     contribution_path: PathBuf,
+    host: HostState,
+    host_root: PathBuf,
 }
 
 async fn build_onecoin_validators(
@@ -162,8 +262,137 @@ fn load_identity(path: &PathBuf, password: &str, username: &str) -> Result<Ident
     .map_err(anyhow::Error::msg)
 }
 
-async fn http_response(status: &str, content_type: &str, body: &str) -> Vec<u8> {
-    format!("HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: content-type\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}", body.len()).into_bytes()
+fn allowed_ui_origin(origin: &str) -> bool {
+    if matches!(
+        origin,
+        "http://tauri.localhost" | "https://tauri.localhost" | "tauri://localhost"
+    ) {
+        return true;
+    }
+
+    let ui_addr = std::env::var("AWE_UI_ADDR").unwrap_or_else(|_| "127.0.0.1:41800".to_string());
+    let port = ui_addr
+        .rsplit_once(':')
+        .map(|(_, port)| port)
+        .unwrap_or("41800");
+    origin == format!("http://127.0.0.1:{port}") || origin == format!("http://localhost:{port}")
+}
+
+async fn http_response(status: &str, content_type: &str, body: &str, request: &str) -> Vec<u8> {
+    let origin = request.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.eq_ignore_ascii_case("origin").then_some(value.trim())
+    });
+    let cors_headers = match origin.filter(|value| allowed_ui_origin(value)) {
+        Some(origin) => format!(
+            "Access-Control-Allow-Origin: {origin}\r\nVary: Origin\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: content-type\r\n"
+        ),
+        None => String::new(),
+    };
+    format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n{cors_headers}Cache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+    .into_bytes()
+}
+
+fn http_response_bytes(status: &str, content_type: &str, body: &[u8]) -> Vec<u8> {
+    let mut response = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    response.extend_from_slice(body);
+    response
+}
+
+fn restrict_secret_file_permissions(path: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(path)?.permissions();
+        permissions.set_mode(0o600);
+        fs::set_permissions(path, permissions)?;
+    }
+    #[cfg(not(unix))]
+    {
+        // Windows files inherit access-control rules from the user's profile
+        // directory. Do not replace its ACL with a guessed policy here.
+        let _ = path;
+    }
+    Ok(())
+}
+
+fn valid_site_domain(value: &str) -> bool {
+    if value.is_empty() || value.len() > 253 || value.starts_with('.') || value.ends_with('.') {
+        return false;
+    }
+    value.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    })
+}
+
+fn valid_site_content_type(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b" /;=.+-_".contains(&b))
+}
+
+fn find_site_manifest(host_root: &PathBuf, site_id: &str) -> std::io::Result<SiteManifest> {
+    if site_id.len() != 64 || !site_id.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "invalid AWE site ID",
+        ));
+    }
+    for entry in fs::read_dir(host_root)? {
+        let Ok(entry) = entry else { continue };
+        let path = entry.path();
+        let name = path.file_name().and_then(|v| v.to_str()).unwrap_or("");
+        if !name.ends_with(".manifest.json") {
+            continue;
+        }
+        let Ok(bytes) = fs::read(path) else { continue };
+        let Ok(manifest) = serde_json::from_slice::<SiteManifest>(&bytes) else {
+            continue;
+        };
+        if hex::encode(manifest.root_hash).eq_ignore_ascii_case(site_id) {
+            return Ok(manifest);
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "AWE site ID was not found on this node",
+    ))
+}
+
+fn decode_site_path(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if i + 2 >= bytes.len() {
+                return None;
+            }
+            let high = (bytes[i + 1] as char).to_digit(16)?;
+            let low = (bytes[i + 2] as char).to_digit(16)?;
+            decoded.push(((high << 4) | low) as u8);
+            i += 3;
+        } else {
+            decoded.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(decoded).ok()
 }
 
 async fn read_http_request(stream: &mut tokio::net::TcpStream) -> Result<String> {
@@ -223,6 +452,96 @@ async fn read_http_request(stream: &mut tokio::net::TcpStream) -> Result<String>
 }
 
 #[allow(clippy::too_many_arguments)]
+fn format_onecoin_atoms(atoms: u128) -> String {
+    let whole = atoms / ATOMS_PER_COIN;
+    let fraction = atoms % ATOMS_PER_COIN;
+    let value = format!("{whole}.{fraction:018}");
+    value
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
+}
+
+fn parse_fiat_minor(value: &serde_json::Value) -> Result<u64, String> {
+    let raw = if let Some(text) = value.as_str() {
+        text.trim().to_owned()
+    } else if value.is_number() {
+        value.to_string()
+    } else {
+        return Err("price must be a decimal value".into());
+    };
+    if raw.is_empty() || raw.contains('e') || raw.contains('E') {
+        return Err("price must be a plain decimal value".into());
+    }
+    let mut parts = raw.split('.');
+    let whole = parts.next().unwrap_or("");
+    let fraction = parts.next().unwrap_or("");
+    if parts.next().is_some()
+        || whole.is_empty()
+        || !whole.bytes().all(|b| b.is_ascii_digit())
+        || fraction.len() > 2
+        || !fraction.bytes().all(|b| b.is_ascii_digit())
+    {
+        return Err("price must use at most 2 decimal places".into());
+    }
+    let whole_minor = whole
+        .parse::<u64>()
+        .map_err(|_| "price is too large".to_string())?
+        .checked_mul(100)
+        .ok_or_else(|| "price is too large".to_string())?;
+    let padded_fraction = format!("{fraction:0<2}");
+    let fraction_minor = if padded_fraction.is_empty() {
+        0
+    } else {
+        padded_fraction
+            .parse::<u64>()
+            .map_err(|_| "price is invalid".to_string())?
+    };
+    let minor = whole_minor
+        .checked_add(fraction_minor)
+        .ok_or_else(|| "price is too large".to_string())?;
+    if minor == 0 {
+        return Err("price must be positive".into());
+    }
+    Ok(minor)
+}
+
+fn parse_resource_u64(value: &serde_json::Value, key: &str) -> Result<u64, String> {
+    match value.get(key) {
+        None => Ok(0),
+        Some(field) => field
+            .as_u64()
+            .ok_or_else(|| format!("{} must be a non-negative integer", key)),
+    }
+}
+
+fn parse_resource_u32(value: &serde_json::Value, key: &str) -> Result<u32, String> {
+    u32::try_from(parse_resource_u64(value, key)?)
+        .map_err(|_| format!("{} exceeds the supported maximum", key))
+}
+
+fn parse_resource_u16(value: &serde_json::Value, key: &str) -> Result<u16, String> {
+    u16::try_from(parse_resource_u64(value, key)?)
+        .map_err(|_| format!("{} exceeds the supported maximum", key))
+}
+
+fn parse_resource_contribution(value: &serde_json::Value) -> Result<ResourceContribution, String> {
+    let contribution = ResourceContribution {
+        storage_bytes: parse_resource_u64(value, "storage_bytes")?,
+        cpu_cores: parse_resource_u32(value, "cpu_cores")?,
+        ram_bytes: parse_resource_u64(value, "ram_bytes")?,
+        gpu_units: parse_resource_u32(value, "gpu_units")?,
+        bandwidth_bytes: parse_resource_u64(value, "bandwidth_bytes")?,
+        online_hours: parse_resource_u16(value, "online_hours")?,
+        node_count: parse_resource_u32(value, "node_count")?,
+        server_count: parse_resource_u32(value, "server_count")?,
+        uptime_bps: parse_resource_u16(value, "uptime_bps")?,
+        utilization_bps: parse_resource_u16(value, "utilization_bps")?,
+    };
+    contribution.validate()?;
+    Ok(contribution)
+}
+
 fn parse_onecoin_atoms(value: &serde_json::Value) -> Result<u128, String> {
     let raw = if let Some(text) = value.as_str() {
         text.trim().to_owned()
@@ -240,15 +559,15 @@ fn parse_onecoin_atoms(value: &serde_json::Value) -> Result<u128, String> {
     if parts.next().is_some() || whole.is_empty() || !whole.chars().all(|c| c.is_ascii_digit()) {
         return Err("amount_coins has invalid decimal syntax".into());
     }
-    if fraction.len() > 8 || !fraction.chars().all(|c| c.is_ascii_digit()) {
-        return Err("amount_coins supports at most 8 decimal places".into());
+    if fraction.len() > 18 || !fraction.chars().all(|c| c.is_ascii_digit()) {
+        return Err("amount_coins supports at most 18 decimal places".into());
     }
     let whole_atoms = whole
         .parse::<u128>()
         .map_err(|_| "amount_coins is too large".to_string())?
         .checked_mul(ATOMS_PER_COIN)
         .ok_or_else(|| "amount_coins is too large".to_string())?;
-    let padded = format!("{fraction:0<8}");
+    let padded = format!("{fraction:0<18}");
     let fraction_atoms = if padded.is_empty() {
         0
     } else {
@@ -273,16 +592,167 @@ async fn serve_ui(mut stream: tokio::net::TcpStream, state: UiState) -> Result<(
         policy_state,
         community,
         onecoin_ledger,
+        onecoin_outbox,
         onecoin_path,
         onecoin_offers_path,
         contribution,
         contribution_path,
+        host,
+        host_root,
     } = state;
     let request = read_http_request(&mut stream).await?;
     let request_line = request.lines().next().unwrap_or("");
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or("GET");
-    let path = parts.next().unwrap_or("/").split('?').next().unwrap_or("/");
+    let target = parts.next().unwrap_or("/");
+    let path = target.split('?').next().unwrap_or("/");
+    let request_host = request.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.eq_ignore_ascii_case("host")
+            .then_some(value.trim().to_ascii_lowercase())
+    });
+    let configured_port = env::var("AWE_UI_ADDR")
+        .ok()
+        .and_then(|addr| addr.rsplit_once(':').map(|(_, port)| port.to_string()))
+        .unwrap_or_else(|| "41800".to_string());
+    if let Some(host) = request_host.as_deref() {
+        let site_suffix = format!(".localhost:{configured_port}");
+        if let Some(site_host_id) = host.strip_suffix(&site_suffix) {
+            if site_host_id.len() == 64 && site_host_id.bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
+                let site_prefix = format!("/site/{site_host_id}");
+                let allowed_site_path = path == site_prefix
+                    || path
+                        .strip_prefix(&site_prefix)
+                        .is_some_and(|rest| rest.starts_with('/'));
+                if !allowed_site_path {
+                    // A hosted page has its own origin, but that does not make
+                    // the local node API safe to expose to its JavaScript.
+                    // Restrict this virtual host to its own site's files.
+                    let response = http_response(
+                        "404 Not Found",
+                        "text/plain; charset=utf-8",
+                        "Not Found",
+                        &request,
+                    )
+                    .await;
+                    stream.write_all(&response).await?;
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    // CORS headers alone do not prevent cross-origin requests from being sent.
+    // Reject browser-originated state changes unless the caller is the local
+    // AWENET UI. Requests without an Origin header remain available to local
+    // native clients and command-line diagnostics.
+    if path.starts_with("/api/")
+        && matches!(
+            method.to_ascii_uppercase().as_str(),
+            "POST" | "PUT" | "PATCH" | "DELETE"
+        )
+    {
+        let origin = request.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("origin").then_some(value.trim())
+        });
+        if origin.is_some_and(|value| !allowed_ui_origin(value)) {
+            let response = http_response(
+                "403 Forbidden",
+                "application/json; charset=utf-8",
+                r#"{"status":"error","error":"cross-origin API mutations are not allowed"}"#,
+                &request,
+            )
+            .await;
+            stream.write_all(&response).await?;
+            return Ok(());
+        }
+    }
+
+    // Complete browser CORS preflight before routing API requests.
+    if method.eq_ignore_ascii_case("OPTIONS") {
+        let response =
+            http_response("204 No Content", "text/plain; charset=utf-8", "", &request).await;
+        stream.write_all(&response).await?;
+        return Ok(());
+    }
+
+    if let Some(site_route) = path.strip_prefix("/site/") {
+        let mut parts = site_route.splitn(2, '/');
+        let site_id = parts.next().unwrap_or("");
+        let site_port = env::var("AWE_UI_ADDR")
+            .ok()
+            .and_then(|addr| addr.rsplit_once(':').map(|(_, port)| port.to_string()))
+            .unwrap_or_else(|| "41800".to_string());
+        let expected_host = format!("{}.localhost:{}", site_id.to_ascii_lowercase(), site_port);
+        let request_host = request.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("host")
+                .then_some(value.trim().to_ascii_lowercase())
+        });
+        if site_id.len() == 64
+            && site_id.bytes().all(|byte| byte.is_ascii_hexdigit())
+            && request_host.as_deref() != Some(expected_host.as_str())
+        {
+            // Never execute untrusted hosted content on the trusted UI/API origin.
+            // The per-site localhost subdomain gives each site a separate browser origin.
+            let location = format!("http://{expected_host}/site/{site_route}");
+            let response = format!(
+                "HTTP/1.1 302 Found\r\nLocation: {location}\r\nCache-Control: no-store\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            stream.write_all(response.as_bytes()).await?;
+            return Ok(());
+        }
+        let requested_path = decode_site_path(parts.next().unwrap_or("index.html"))
+            .unwrap_or_else(|| "index.html".to_string());
+        let requested_path = if requested_path.starts_with('/') {
+            requested_path
+        } else {
+            format!("/{requested_path}")
+        };
+        let response = match find_site_manifest(&host_root, site_id) {
+            Ok(manifest) => {
+                let content_type = manifest
+                    .files
+                    .iter()
+                    .find(|file| {
+                        file.path
+                            == awep2p_core::host::normalize_path(&requested_path)
+                                .unwrap_or_default()
+                    })
+                    .map(|file| file.content_type.clone())
+                    .unwrap_or_else(|| "application/octet-stream".to_string());
+                match host.lock() {
+                    Ok(mut host) => match host.get_authorized(&manifest, &requested_path, None) {
+                        Ok(bytes) => http_response_bytes("200 OK", &content_type, &bytes),
+                        Err(error) => http_response_bytes(
+                            "404 Not Found",
+                            "text/plain; charset=utf-8",
+                            error.to_string().as_bytes(),
+                        ),
+                    },
+                    Err(_) => http_response_bytes(
+                        "500 Internal Server Error",
+                        "text/plain; charset=utf-8",
+                        b"AWE host is unavailable",
+                    ),
+                }
+            }
+            Err(error) => http_response_bytes(
+                if error.kind() == std::io::ErrorKind::InvalidInput {
+                    "400 Bad Request"
+                } else {
+                    "404 Not Found"
+                },
+                "text/plain; charset=utf-8",
+                error.to_string().as_bytes(),
+            ),
+        };
+        stream.write_all(&response).await?;
+        return Ok(());
+    }
+
     let (status, mime, body) = match path {
         "/" | "/index.html" => ("200 OK", "text/html; charset=utf-8", UI_HTML.to_string()),
         "/style.css" => ("200 OK", "text/css; charset=utf-8", UI_CSS.to_string()),
@@ -290,8 +760,99 @@ async fn serve_ui(mut stream: tokio::net::TcpStream, state: UiState) -> Result<(
         "/onecoin.js" => ("200 OK", "application/javascript; charset=utf-8", ONECOIN_JS.to_string()),
         "/onecoin.css" => ("200 OK", "text/css; charset=utf-8", ONECOIN_CSS.to_string()),
         "/vendor/qrcode.js" => ("200 OK", "application/javascript; charset=utf-8", QR_JS.to_string()),
+        "/api/sites" if method == "GET" => {
+            let sites = fs::read_dir(&host_root)
+                .ok()
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.file_name().to_string_lossy().ends_with(".manifest.json"))
+                .filter_map(|entry| fs::read(entry.path()).ok())
+                .filter_map(|bytes| serde_json::from_slice::<SiteManifest>(&bytes).ok())
+                .filter(SiteManifest::open)
+                .map(|manifest| serde_json::json!({
+                    "site_id": hex::encode(manifest.root_hash),
+                    "name": manifest.domain,
+                    "version": manifest.version,
+                    "files": manifest.files.len(),
+                    "open": true
+                }))
+                .collect::<Vec<_>>();
+            ("200 OK", "application/json; charset=utf-8", serde_json::json!({"status":"ok","sites":sites}).to_string())
+        },
+        "/api/sites/publish" if method == "POST" => {
+            let request_body = request.split_once("\r\n\r\n").map(|(_, body)| body).unwrap_or("");
+            let parsed = serde_json::from_str::<serde_json::Value>(request_body);
+            match parsed {
+                Err(_) => ("400 Bad Request", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":"invalid JSON body"}).to_string()),
+                Ok(payload) => {
+                    let domain = payload.get("domain").and_then(|v| v.as_str()).unwrap_or("").trim().to_ascii_lowercase();
+                    let version = payload.get("version").and_then(|v| v.as_u64()).unwrap_or(1);
+                    let files = payload.get("files").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+                    if !valid_site_domain(&domain) || version == 0 || files.is_empty() || files.len() > 256 {
+                        ("400 Bad Request", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":"domain must be a valid site name and files must contain 1-256 entries"}).to_string())
+                    } else {
+                        match host.lock() {
+                            Err(_) => ("500 Internal Server Error", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":"AWE host is unavailable"}).to_string()),
+                            Ok(mut host) => {
+                                if host.load_manifest(&domain).is_ok_and(|existing| version <= existing.version) {
+                                    ("409 Conflict", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":"site version must increase when updating a site"}).to_string())
+                                } else {
+                                    let mut hosted_files = Vec::with_capacity(files.len());
+                                    let mut error = None;
+                                    for file in files {
+                                        let path = file.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                                        let content_type = file.get("content_type").and_then(|v| v.as_str()).unwrap_or("text/plain; charset=utf-8");
+                                        if !valid_site_content_type(content_type) {
+                                            error = Some("invalid content type");
+                                            break;
+                                        }
+                                        let data = if let Some(text) = file.get("content").and_then(|v| v.as_str()) {
+                                            Some(text.as_bytes().to_vec())
+                                        } else {
+                                            file.get("data_hex").and_then(|v| v.as_str()).and_then(|hex_data| hex::decode(hex_data).ok())
+                                        };
+                                        let Some(data) = data else {
+                                            error = Some("each file requires content or valid data_hex");
+                                            break;
+                                        };
+                                        if hosted_files.iter().any(|existing: &awep2p_core::host::HostedFile| existing.path == awep2p_core::host::normalize_path(path).unwrap_or_default()) {
+                                            error = Some("duplicate file path");
+                                            break;
+                                        }
+                                        match host.publish_file(path, &data, content_type) {
+                                            Ok(file) => hosted_files.push(file),
+                                            Err(_) => { error = Some("invalid file path or host storage policy rejected the file"); break; }
+                                        }
+                                    }
+                                    if let Some(error) = error {
+                                        ("400 Bad Request", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":error}).to_string())
+                                    } else {
+                                        match host.publish_manifest(&domain, version, node.identity.public.public_key.to_vec(), hosted_files) {
+                                            Err(error) => ("400 Bad Request", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":error.to_string()}).to_string()),
+                                            Ok(manifest) => match host.save_manifest(&manifest) {
+                                                Err(error) => ("500 Internal Server Error", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":error.to_string()}).to_string()),
+                                                Ok(()) => ("200 OK", "application/json; charset=utf-8", serde_json::json!({
+                                                    "status":"published",
+                                                    "name":manifest.domain,
+                                                    "version":manifest.version,
+                                                    "site_id":hex::encode(manifest.root_hash),
+                                                    "files":manifest.files.len(),
+                                                    "url":format!("awe://site-{}",hex::encode(manifest.root_hash))
+                                                }).to_string())
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/onebank/wallet" if method == "GET" => {
             let ledger = onecoin_ledger.lock().map(|l| l.clone()).unwrap_or_default();
+            let pending_transfers = onecoin_outbox.lock().map(|pending| pending.len()).unwrap_or_default();
             let id = node.identity.public.awe_id.clone();
             let balance_atoms = ledger.balance_atoms(&id);
             let contribution_snapshot = contribution.lock().map(|r| r.clone()).unwrap_or_default();
@@ -300,6 +861,8 @@ async fn serve_ui(mut stream: tokio::net::TcpStream, state: UiState) -> Result<(
                 "awe_id": id.to_hex(),
                 "balance_atoms": balance_atoms,
                 "balance_coins": balance_atoms / ATOMS_PER_COIN,
+                "balance_coins_exact": format_onecoin_atoms(balance_atoms),
+                "pending_transfers": pending_transfers,
                 "tier": tier,
                 "fee_bps": 100,
                 "resource_score": contribution_snapshot.score(),
@@ -320,128 +883,300 @@ async fn serve_ui(mut stream: tokio::net::TcpStream, state: UiState) -> Result<(
         },
         "/api/onebank/contribution" if method == "POST" => {
             let body = request.split("\r\n\r\n").nth(1).unwrap_or("");
-            let parsed: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
-            let r = ResourceContribution {
-                storage_bytes: parsed.get("storage_bytes").and_then(|v| v.as_u64()).unwrap_or(0),
-                cpu_cores: parsed.get("cpu_cores").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                ram_bytes: parsed.get("ram_bytes").and_then(|v| v.as_u64()).unwrap_or(0),
-                gpu_units: parsed.get("gpu_units").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                bandwidth_bytes: parsed.get("bandwidth_bytes").and_then(|v| v.as_u64()).unwrap_or(0),
-                online_hours: parsed.get("online_hours").and_then(|v| v.as_u64()).unwrap_or(0) as u16,
-                node_count: parsed.get("node_count").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                server_count: parsed.get("server_count").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                uptime_bps: parsed.get("uptime_bps").and_then(|v| v.as_u64()).unwrap_or(0) as u16,
-                utilization_bps: parsed.get("utilization_bps").and_then(|v| v.as_u64()).unwrap_or(0) as u16,
-            };
-            match r.validate() {
-                Ok(()) => {
-                    if let Ok(mut guard) = contribution.lock() { *guard = r.clone(); }
-                    match fs::write(&contribution_path, serde_json::to_vec_pretty(&r).unwrap_or_default()) {
-                        Ok(()) => ("200 OK", "application/json; charset=utf-8", serde_json::json!({
-                            "status":"accepted_for_verification",
-                            "tier": classify_tier(&r).wire_name(),
-                            "verified":false,
-                            "reward_status":"requires_signed_usage_receipt"
-                        }).to_string()),
-                        Err(e) => ("500 Internal Server Error", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":e.to_string()}).to_string())
+            let parsed = serde_json::from_str::<serde_json::Value>(body)
+                .map_err(|_| "invalid contribution JSON".to_string())
+                .and_then(|value| parse_resource_contribution(&value));
+            match parsed {
+                Err(error) => (
+                    "400 Bad Request",
+                    "application/json; charset=utf-8",
+                    serde_json::json!({"status":"error","error":error}).to_string(),
+                ),
+                Ok(resource) => {
+                    match contribution.lock() {
+                        Err(_) => (
+                            "500 Internal Server Error",
+                            "application/json; charset=utf-8",
+                            serde_json::json!({"status":"error","error":"resource contribution lock failed"}).to_string(),
+                        ),
+                        Ok(mut guard) => {
+                            let persisted = serde_json::to_vec_pretty(&resource)
+                                .map_err(|error| error.to_string())
+                                .and_then(|bytes| fs::write(&contribution_path, bytes).map_err(|error| error.to_string()));
+                            match persisted {
+                                Ok(()) => {
+                                    *guard = resource.clone();
+                                    (
+                                        "200 OK",
+                                        "application/json; charset=utf-8",
+                                        serde_json::json!({
+                                            "status":"accepted_for_verification",
+                                            "tier": classify_tier(&resource).wire_name(),
+                                            "verified":false,
+                                            "reward_status":"requires_signed_usage_receipt"
+                                        }).to_string(),
+                                    )
+                                }
+                                Err(error) => (
+                                    "500 Internal Server Error",
+                                    "application/json; charset=utf-8",
+                                    serde_json::json!({"status":"error","error":error}).to_string(),
+                                ),
+                            }
+                        }
                     }
-                },
-                Err(error) => ("400 Bad Request", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":error}).to_string())
+                }
             }
         },
         "/api/onebank/wallet/send" if method == "POST" => {
             let body = request.split("\r\n\r\n").nth(1).unwrap_or("");
-            let parsed: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
-            let recipient_hex = parsed.get("recipient").and_then(|v| v.as_str()).unwrap_or("");
-            let amount_value = parsed.get("amount_coins").cloned().unwrap_or(serde_json::Value::Null);
-            let memo = parsed.get("memo").and_then(|v| v.as_str()).map(str::to_owned);
-            let result: Result<(String, u128, OnecoinTransaction), String> = (|| {
-                if recipient_hex.len() != 64 || !recipient_hex.chars().all(|c| c.is_ascii_hexdigit()) {
-                    return Err("recipient must be a 64-character AWE-ID".into());
-                }
-                let amount_atoms = parse_onecoin_atoms(&amount_value)?;
-                if amount_atoms == 0 {
-                    return Err("amount_coins must be positive".into());
-                }
-                let recipient = AweId::from_hex(recipient_hex)?;
-                if recipient == node.identity.public.awe_id {
-                    return Err("cannot transfer ONECOIN to the same wallet".into());
-                }
-                let mut ledger = onecoin_ledger.lock().map_err(|_| "ONECOIN ledger lock failed".to_string())?;
-                let sender = node.identity.public.awe_id.clone();
-                if ledger.members.is_empty() {
-                    ledger.initialize_genesis(std::slice::from_ref(&sender))?;
-                }
-                ledger.ensure_member(&recipient);
-                if ledger.balance_atoms(&sender) < amount_atoms {
-                    return Err("insufficient ONECOIN balance".into());
-                }
-                let nonce = ledger.nonces.get(&sender.to_hex()).copied().unwrap_or(0);
-                let tx = OnecoinTransaction::new(&node.identity, nonce, &recipient, amount_atoms, memo);
-                let (tx_id, fee_atoms) = ledger.apply_transfer_with_fee(&tx, &node.identity.public.public_key, 100)?;
-                fs::write(&onecoin_path, serde_json::to_vec_pretty(&*ledger).map_err(|_| "ONECOIN ledger serialization failed".to_string())?)
-                    .map_err(|e| e.to_string())?;
-                Ok((hex::encode(tx_id), fee_atoms, tx))
-            })();
-            match result {
-                Ok((tx_id, fee_atoms, tx)) => { let recipient_id = tx.recipient; let delivered = if node.peers().await.into_iter().any(|p| p.awe_id == recipient_id) {
-                        match serde_json::to_vec(&tx) {
-                            Ok(bytes) => {
-                                if node
-                                    .send_to_peer_confirmed(
-                                        &recipient_id,
-                                        policy::ONECOIN_TRANSFER_STREAM,
-                                        bytes.clone(),
-                                    )
-                                    .await
-                                    .is_ok()
-                                {
-                                    true
-                                } else {
-                                    node.send_to_peer(
-                                        &recipient_id,
-                                        policy::ONECOIN_TRANSFER_STREAM,
-                                        bytes,
-                                    )
-                                    .await
-                                    .is_ok()
-                                }
-                            },
+            let parsed = serde_json::from_str::<serde_json::Value>(body);
+            match parsed {
+                Err(_) => (
+                    "400 Bad Request",
+                    "application/json; charset=utf-8",
+                    serde_json::json!({"status":"rejected","error":"invalid JSON body"}).to_string(),
+                ),
+                Ok(parsed) => {
+                let recipient_hex = parsed.get("recipient").and_then(|v| v.as_str()).unwrap_or("");
+                let amount_value = parsed.get("amount_coins").cloned().unwrap_or(serde_json::Value::Null);
+                let memo = parsed.get("memo").and_then(|v| v.as_str()).map(str::to_owned);
+                let result: Result<(String, u128, OnecoinTransaction), String> = (|| {
+                    if recipient_hex.len() != 64 || !recipient_hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                        return Err("recipient must be a 64-character AWE-ID".into());
+                    }
+                    let amount_atoms = parse_onecoin_atoms(&amount_value)?;
+                    if amount_atoms == 0 {
+                        return Err("amount_coins must be positive".into());
+                    }
+                    let recipient = AweId::from_hex(recipient_hex)?;
+                    if recipient == node.identity.public.awe_id {
+                        return Err("cannot transfer ONECOIN to the same wallet".into());
+                    }
+
+                    // Mutate clones first and persist the ledger and retry queue as
+                    // one atomic snapshot. A failed write must never spend in memory.
+                    let mut ledger = onecoin_ledger
+                        .lock()
+                        .map_err(|_| "ONECOIN ledger lock failed".to_string())?;
+                    let mut outbox = onecoin_outbox
+                        .lock()
+                        .map_err(|_| "ONECOIN outbox lock failed".to_string())?;
+                    let mut next_ledger = ledger.clone();
+                    let mut next_outbox = outbox.clone();
+                    let sender = node.identity.public.awe_id.clone();
+                    if next_ledger.members.is_empty() {
+                        next_ledger.initialize_genesis(std::slice::from_ref(&sender))?;
+                    }
+                    next_ledger.ensure_member(&recipient);
+                    if next_ledger.balance_atoms(&sender) < amount_atoms {
+                        return Err("insufficient ONECOIN balance".into());
+                    }
+                    let nonce = next_ledger.nonces.get(&sender.to_hex()).copied().unwrap_or(0);
+                    let tx = OnecoinTransaction::new(&node.identity, nonce, &recipient, amount_atoms, memo);
+                    let (tx_id, _fee_atoms) = next_ledger.apply_transfer_with_fee(
+                        &tx,
+                        &node.identity.public.public_key,
+                        100,
+                    )?;
+                    let tx_id = hex::encode(tx_id);
+                    next_outbox.insert(tx_id.clone(), tx.clone());
+                    persist_onecoin_state(&onecoin_path, &next_ledger, &next_outbox)?;
+                    *ledger = next_ledger;
+                    *outbox = next_outbox;
+                    Ok((tx_id, _fee_atoms, tx))
+                })();
+
+                match result {
+                    Ok((tx_id, fee_atoms, tx)) => {
+                        let transport_send_accepted = match serde_json::to_vec(&tx) {
+                            Ok(bytes) => node
+                                .send_to_peer(
+                                    &tx.recipient,
+                                    policy::ONECOIN_TRANSFER_STREAM,
+                                    bytes,
+                                )
+                                .await
+                                .is_ok(),
                             Err(_) => false,
-                        }
-                    } else {
-                        false
-                    }; ("200 OK", "application/json; charset=utf-8", serde_json::json!({"status":"accepted","tx_id":tx_id,"fee_atoms":fee_atoms,"fee_bps":100,"recipient_delivered":delivered,"recipient_pending":!delivered}).to_string()) },
-                Err(error) => ("400 Bad Request", "application/json; charset=utf-8", serde_json::json!({"status":"rejected","error":error}).to_string())
+                        };
+                        let still_pending = onecoin_outbox
+                            .lock()
+                            .map(|queue| queue.contains_key(&tx_id))
+                            .unwrap_or(true);
+                        (
+                            "200 OK",
+                            "application/json; charset=utf-8",
+                            serde_json::json!({
+                                "status":"accepted",
+                                "tx_id":tx_id,
+                                "fee_atoms":fee_atoms,
+                                "fee_bps":100,
+                                "transport_send_accepted":transport_send_accepted,
+                                "recipient_delivered":!still_pending,
+                                "recipient_pending":still_pending
+                            }).to_string(),
+                        )
+                    }
+                    Err(error) => (
+                        "400 Bad Request",
+                        "application/json; charset=utf-8",
+                        serde_json::json!({"status":"rejected","error":error}).to_string(),
+                    ),
+                }
+                }
             }
         },
         "/api/onebank/exchange/offers" if method == "GET" => {
             let offers: Vec<serde_json::Value> = fs::read(&onecoin_offers_path)
                 .ok()
-                .and_then(|b| serde_json::from_slice(&b).ok())
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
                 .unwrap_or_default();
-            ("200 OK", "application/json; charset=utf-8", serde_json::to_string(&offers).unwrap_or_else(|_| "[]".into()))
+            let verified = offers
+                .into_iter()
+                .filter(|offer| {
+                    let public_key = offer
+                        .get("owner_public_key")
+                        .and_then(|value| value.as_str())
+                        .and_then(|value| hex::decode(value).ok())
+                        .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok());
+                    let signed = offer
+                        .get("signed_offer")
+                        .cloned()
+                        .and_then(|value| serde_json::from_value::<P2POffer>(value).ok());
+                    match (public_key, signed) {
+                        (Some(public_key), Some(signed)) => {
+                            offer.get("owner").and_then(|value| value.as_str())
+                                == Some(signed.owner.to_hex().as_str())
+                                && signed.verify(&public_key, now_unix())
+                        }
+                        _ => false,
+                    }
+                })
+                .collect::<Vec<_>>();
+            (
+                "200 OK",
+                "application/json; charset=utf-8",
+                serde_json::to_string(&verified).unwrap_or_else(|_| "[]".into()),
+            )
         },
         "/api/onebank/exchange/offers" if method == "POST" => {
             let body = request.split("\r\n\r\n").nth(1).unwrap_or("");
-            let mut offer: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
-            if !offer.is_object() {
-                offer = serde_json::json!({});
-            }
-            if let Some(obj) = offer.as_object_mut() {
-                obj.insert("owner".into(), serde_json::json!(node.identity.public.awe_id.to_hex()));
-                obj.insert("settlement".into(), serde_json::json!("DIRECT_PERSON_TO_PERSON"));
-                obj.insert("coin_transfer".into(), serde_json::json!("AWENET_WALLET"));
-                obj.insert("fiat_transfer".into(), serde_json::json!("OUTSIDE_AWENET"));
-                obj.insert("created_at".into(), serde_json::json!(now_unix()));
-            }
-            let mut offers: Vec<serde_json::Value> = fs::read(&onecoin_offers_path)
-                .ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-            offers.push(offer.clone());
-            let response = fs::write(&onecoin_offers_path, serde_json::to_vec_pretty(&offers).unwrap_or_default());
-            match response {
-                Ok(()) => ("200 OK", "application/json; charset=utf-8", serde_json::json!({"status":"published","offer":offer,"notice":"ONECOIN transfer is handled by AWENET wallet. Fiat is exchanged directly between people outside AWENET."}).to_string()),
-                Err(error) => ("500 Internal Server Error", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":error.to_string()}).to_string())
+            let result: Result<serde_json::Value, String> = (|| {
+                let payload: serde_json::Value =
+                    serde_json::from_str(body).map_err(|_| "invalid offer JSON".to_string())?;
+                let data = payload.get("offer").unwrap_or(&payload);
+                let side_text = data
+                    .get("side")
+                    .and_then(|value| value.as_str())
+                    .ok_or("offer side is required")?
+                    .to_ascii_lowercase();
+                let side = match side_text.as_str() {
+                    "buy" => ExchangeSide::Buy,
+                    "sell" => ExchangeSide::Sell,
+                    _ => return Err("offer side must be buy or sell".into()),
+                };
+                let amount_atoms = parse_onecoin_atoms(
+                    data.get("amount").ok_or("offer amount is required")?,
+                )?;
+                let price_minor = parse_fiat_minor(
+                    data.get("price").ok_or("offer price is required")?,
+                )?;
+                let currency = data
+                    .get("currency")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("USD")
+                    .trim()
+                    .to_ascii_uppercase();
+                if !["USD", "EUR", "AMD", "GBP"].contains(&currency.as_str()) {
+                    return Err("unsupported fiat currency".into());
+                }
+                let rail_text = data
+                    .get("rail")
+                    .and_then(|value| value.as_str())
+                    .ok_or("offer payment rail is required")?;
+                let (rail, rail_label) = match rail_text.to_ascii_lowercase().as_str() {
+                    "externalpayment" | "external_payment" => {
+                        (FiatRail::ExternalPayment, "ExternalPayment")
+                    }
+                    "banktransfer" | "bank_transfer" => {
+                        (FiatRail::BankTransfer, "BankTransfer")
+                    }
+                    "cash" => (FiatRail::Cash, "Cash"),
+                    _ => return Err("unsupported payment rail".into()),
+                };
+                let now = now_unix();
+                let expires = now.saturating_add(30 * 24 * 60 * 60);
+                let signed = P2POffer::new(
+                    &node.identity,
+                    side.clone(),
+                    amount_atoms,
+                    price_minor,
+                    currency.clone(),
+                    rail,
+                    None,
+                    expires,
+                )?;
+                let signed_value = serde_json::to_value(&signed)
+                    .map_err(|_| "signed offer serialization failed".to_string())?;
+                let value = serde_json::json!({
+                    "id": hex::encode(signed.id),
+                    "side": side_text,
+                    "amount": format_onecoin_atoms(amount_atoms),
+                    "price": format!("{}.{:02}", price_minor / 100, price_minor % 100),
+                    "currency": currency,
+                    "rail": rail_label,
+                    "owner": node.identity.public.awe_id.to_hex(),
+                    "owner_public_key": hex::encode(node.identity.public.public_key),
+                    "created_at": now,
+                    "expires_at_unix": expires,
+                    "signature_verified": signed.verify(&node.identity.public.public_key, now),
+                    "signed_offer": signed_value,
+                    "settlement": "DIRECT_PERSON_TO_PERSON",
+                    "coin_transfer": "AWENET_WALLET",
+                    "fiat_transfer": "OUTSIDE_AWENET"
+                });
+                Ok(value)
+            })();
+            match result {
+                Ok(offer) => {
+                    let mut offers: Vec<serde_json::Value> = fs::read(&onecoin_offers_path)
+                        .ok()
+                        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                        .unwrap_or_default();
+                    offers.retain(|stored| {
+                        stored
+                            .get("signed_offer")
+                            .cloned()
+                            .and_then(|value| serde_json::from_value::<P2POffer>(value).ok())
+                            .is_some_and(|signed| signed.verify(
+                                &node.identity.public.public_key,
+                                now_unix(),
+                            ))
+                    });
+                    offers.push(offer.clone());
+                    match fs::write(&onecoin_offers_path, serde_json::to_vec_pretty(&offers).unwrap_or_default()) {
+                        Ok(()) => (
+                            "200 OK",
+                            "application/json; charset=utf-8",
+                            serde_json::json!({
+                                "status": "published",
+                                "offer": offer,
+                                "notice": "The offer is signed by this node. Fiat settlement is external and no payment is executed by this listing."
+                            }).to_string(),
+                        ),
+                        Err(error) => (
+                            "500 Internal Server Error",
+                            "application/json; charset=utf-8",
+                            serde_json::json!({"status":"error","error":error.to_string()}).to_string(),
+                        ),
+                    }
+                }
+                Err(error) => (
+                    "400 Bad Request",
+                    "application/json; charset=utf-8",
+                    serde_json::json!({"status":"rejected","error":error}).to_string(),
+                ),
             }
         },
         "/api/node" => ("200 OK", "application/json; charset=utf-8", serde_json::json!({
@@ -695,7 +1430,15 @@ async fn serve_ui(mut stream: tokio::net::TcpStream, state: UiState) -> Result<(
                 let id=format!("cid-{}",hex::encode(&blake3::hash(format!("{}:{}:{}",local,title,now_unix()).as_bytes()).as_bytes()[..12])); let channel=serde_json::json!({"id":id,"title":title,"owner":local,"subscribers":[local],"created_at":now_unix(),"messages":[]});
                 if let Ok(mut st)=community.lock(){if let Some(a)=st.get_mut("channels").and_then(|v|v.as_array_mut()){a.push(channel.clone());}}
                 let env=serde_json::json!({"kind":"awe.channel.v1","event":"upsert","channel":channel,"sender":local}); let mut delivered=0usize;
-                if let Ok(payload)=serde_json::to_vec(&env){for peer in node.peers().await{if node.send_to_peer(&peer.awe_id,100,payload.clone()).await.is_ok(){delivered+=1;}}}
+                if let Ok(payload)=serde_json::to_vec(&env) {
+                    for peer in node.peers().await {
+                        let sent = match node.send_to_peer_confirmed(&peer.awe_id,100,payload.clone()).await {
+                            Ok(_) => true,
+                            Err(_) => node.send_to_peer(&peer.awe_id,100,payload.clone()).await.is_ok(),
+                        };
+                        if sent { delivered+=1; }
+                    }
+                }
                 ("200 OK","application/json; charset=utf-8",serde_json::json!({"status":"created","channel":channel,"delivered_peers":delivered}).to_string())
             }
         },
@@ -759,6 +1502,67 @@ async fn serve_ui(mut stream: tokio::net::TcpStream, state: UiState) -> Result<(
                 "application_transport":"authenticated peer data stream",
                 "messages": messenger.lock().map(|x| x.clone()).unwrap_or_default()
             }).to_string())
+        },
+        "/api/store/publish" if method == "POST" => {
+            let body = request.split_once("\r\n\r\n").map(|(_, body)| body).unwrap_or("");
+            let parsed = serde_json::from_str::<serde_json::Value>(body);
+            match parsed {
+                Err(_) => ("400 Bad Request", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":"invalid JSON body"}).to_string()),
+                Ok(payload) => {
+                    let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("").trim();
+                    let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("").trim();
+                    let version = payload.get("version").and_then(|v| v.as_str()).unwrap_or("").trim();
+                    let entry = payload.get("entry").and_then(|v| v.as_str()).unwrap_or("").trim();
+                    let kind = payload.get("kind").and_then(|v| serde_json::from_value::<AppKind>(v.clone()).ok());
+                    let permissions = payload.get("permissions").cloned()
+                        .map(serde_json::from_value::<Vec<AppCapability>>);
+                    let price_value = payload.get("price_onecoin_atoms");
+                    let price = match price_value {
+                        None | Some(serde_json::Value::Null) => Some(None),
+                        Some(v) => v.as_str().and_then(|s| s.parse::<u128>().ok())
+                            .or_else(|| v.as_u64().map(u128::from)).map(Some),
+                    };
+                    let file_values = payload.get("files").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+                    if id.is_empty() || name.is_empty() || version.is_empty() || entry.is_empty() || kind.is_none() || permissions.as_ref().is_none_or(|p| p.is_err()) || price.is_none() || file_values.is_empty() || file_values.len() > 256 {
+                        ("400 Bad Request", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":"id, name, version, entry, kind, valid permissions/price and 1-256 files are required"}).to_string())
+                    } else {
+                        let permissions = permissions.and_then(Result::ok).unwrap_or_default();
+                        let price = price.flatten();
+                        let mut files = BTreeMap::new();
+                        let mut invalid = None;
+                        for file in file_values {
+                            let path = file.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                            let data = file.get("data_hex").and_then(|v| v.as_str()).and_then(|v| hex::decode(v).ok());
+                            match data {
+                                Some(bytes) if !path.is_empty() && path.starts_with('/') && !path.contains('\\') && !path.split('/').any(|part| part == "..") && !files.contains_key(path) => { files.insert(path.to_string(), bytes); }
+                                _ => { invalid = Some("each file needs a unique safe absolute path and valid data_hex"); break; }
+                            }
+                        }
+                        if let Some(error) = invalid {
+                            ("400 Bad Request", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":error}).to_string())
+                        } else if files.values().map(Vec::len).sum::<usize>() > 24 * 1024 * 1024 {
+                            ("413 Payload Too Large", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":"package upload exceeds the 24 MiB API limit"}).to_string())
+                        } else if !files.contains_key(entry) {
+                            ("400 Bad Request", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":"entry must reference one of the uploaded files"}).to_string())
+                        } else {
+                            let root = PathBuf::from(data_dir_for_api()).join("store");
+                            let package = AWEPackage::new(&node.identity, id, name, version, kind.unwrap_or(AppKind::Wasm), entry, files, permissions, Vec::new())
+                                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e));
+                            match package.and_then(|mut package| {
+                                if let Some(atoms) = price { package.set_price_onecoin(&node.identity, Some(atoms)).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?; }
+                                Store::open(&root)?.publish(&package)
+                            }) {
+                                Ok(hash) => {
+                                    let hash = hex::encode(hash);
+                                    let size = fs::metadata(root.join("packages").join(&hash)).map(|m| m.len()).unwrap_or(0);
+                                    ("200 OK", "application/json; charset=utf-8", serde_json::json!({"status":"published","package_hash":hash,"id":id,"name":name,"size":size,"scope":"local-store","signed_by":format_uid(node.identity.public.awe_id.as_bytes())}).to_string())
+                                }
+                                Err(error) => ("400 Bad Request", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":error.to_string()}).to_string())
+                            }
+                        }
+                    }
+                }
+            }
         },
         "/api/store/catalog" => {
             let root = PathBuf::from(data_dir_for_api()).join("store");
@@ -1336,7 +2140,7 @@ async fn serve_ui(mut stream: tokio::net::TcpStream, state: UiState) -> Result<(
         _ => ("404 Not Found", "text/plain; charset=utf-8", "Not Found".to_string()),
     };
     stream
-        .write_all(&http_response(status, mime, &body).await)
+        .write_all(&http_response(status, mime, &body, &request).await)
         .await?;
     stream.shutdown().await?;
     Ok(())
@@ -1632,6 +2436,7 @@ async fn run_product() -> Result<()> {
     fs::create_dir_all(&data_dir)?;
     let secret_path = data_dir.join("node.awesecret");
     let identity = if secret_path.exists() {
+        restrict_secret_file_permissions(&secret_path)?;
         AweSecret::from_bytes(&fs::read(&secret_path)?)
             .map_err(anyhow::Error::msg)?
             .authenticate()
@@ -1641,6 +2446,7 @@ async fn run_product() -> Result<()> {
             Identity::generate(Username::new("awe-node".to_string()).map_err(anyhow::Error::msg)?);
         let secret = AweSecret::generate(&identity);
         fs::write(&secret_path, secret.to_bytes()?)?;
+        restrict_secret_file_permissions(&secret_path)?;
         identity
     };
     let node_id = format_uid(identity.public.awe_id.as_bytes());
@@ -1657,6 +2463,14 @@ async fn run_product() -> Result<()> {
         anyhow::bail!("node storage has no available capacity");
     }
     let storage: StorageState = Arc::new(LocalNodeStore::open(&storage_root, storage_quota)?);
+    let host_root = data_dir.join("host");
+    fs::create_dir_all(&host_root)?;
+    let host_quota = (storage_quota / 4).max(1);
+    let host: HostState = Arc::new(Mutex::new(AweHost::open(
+        &host_root,
+        host_quota,
+        HostPolicy::default(),
+    )?));
     let messenger: MessengerLog = Arc::new(Mutex::new(Vec::new()));
     let community_path = data_dir.join("community.json");
     let community: CommunityState = Arc::new(Mutex::new(
@@ -1770,22 +2584,24 @@ async fn run_product() -> Result<()> {
     });
 
     let onecoin_path = data_dir.join("onecoin-ledger.json");
-    let onecoin_ledger: OnecoinLedgerState = Arc::new(Mutex::new(
-        fs::read(&onecoin_path)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<OnecoinLedger>(&b).ok())
-            .unwrap_or_default(),
-    ));
+    let persisted_onecoin =
+        load_persisted_onecoin_state(&onecoin_path).map_err(anyhow::Error::msg)?;
+    let onecoin_ledger: OnecoinLedgerState = Arc::new(Mutex::new(persisted_onecoin.ledger));
+    let onecoin_outbox: OnecoinPendingState =
+        Arc::new(Mutex::new(persisted_onecoin.pending_transfers));
     {
         let mut ledger = onecoin_ledger
             .lock()
             .map_err(|_| anyhow::anyhow!("ONECOIN ledger lock failed"))?;
+        let pending = onecoin_outbox
+            .lock()
+            .map_err(|_| anyhow::anyhow!("ONECOIN outbox lock failed"))?;
         if ledger.members.is_empty() {
             ledger
                 .initialize_genesis(std::slice::from_ref(&node.identity.public.awe_id))
                 .map_err(anyhow::Error::msg)?;
-            fs::write(&onecoin_path, serde_json::to_vec_pretty(&*ledger)?)?;
         }
+        persist_onecoin_state(&onecoin_path, &ledger, &pending).map_err(anyhow::Error::msg)?;
     }
     let onecoin_offers_path = data_dir.join("onecoin-exchange-offers.json");
     let contribution_path = data_dir.join("resource-contribution.json");
@@ -1857,6 +2673,7 @@ async fn run_product() -> Result<()> {
     let dispatcher_community = community.clone();
     let dispatcher_consensus = consensus_state.clone();
     let dispatcher_onecoin_ledger = onecoin_ledger.clone();
+    let dispatcher_onecoin_outbox = onecoin_outbox.clone();
     let dispatcher_onecoin_path = onecoin_path.clone();
     tokio::spawn(async move {
         loop {
@@ -1893,24 +2710,123 @@ async fn run_product() -> Result<()> {
                     continue;
                 }
                 if stream == policy::ONECOIN_TRANSFER_STREAM {
-                    if let Ok(tx) = serde_json::from_slice::<OnecoinTransaction>(&payload) {
-                        if tx.recipient == *dispatcher_node.identity.public.awe_id.as_bytes() {
-                            if let Ok(mut ledger) = dispatcher_onecoin_ledger.lock() {
-                                let sender_id = AweId::from_public_key(&tx.sender);
-                                ledger.ensure_member(&sender_id);
-                                ledger.ensure_member(&dispatcher_node.identity.public.awe_id);
-                                if ledger
-                                    .receive_transfer(
-                                        &tx,
-                                        &tx.sender,
-                                        &dispatcher_node.identity.public.awe_id,
-                                    )
-                                    .is_ok()
-                                {
-                                    let _ = fs::write(
-                                        &dispatcher_onecoin_path,
-                                        serde_json::to_vec_pretty(&*ledger).unwrap_or_default(),
+                    // A network DataAck means only that the frame reached the
+                    // remote inbox. Clear the durable outbox only after an app ACK
+                    // emitted by the recipient after its ledger is persisted.
+                    if let Ok(ack) = serde_json::from_slice::<OnecoinTransferAck>(&payload) {
+                        eprintln!(
+                            "ONECOIN app ACK received from peer {} for transaction {} (ACK recipient {})",
+                            hex::encode(sender),
+                            ack.transaction_id,
+                            hex::encode(ack.recipient)
+                        );
+                        if ack.recipient == sender {
+                            let matches_pending = dispatcher_onecoin_outbox
+                                .lock()
+                                .ok()
+                                .and_then(|queue| {
+                                    queue
+                                        .get(&ack.transaction_id)
+                                        .map(|tx| tx.recipient == ack.recipient)
+                                })
+                                .unwrap_or(false);
+                            eprintln!(
+                                "ONECOIN app ACK pending match={} for transaction {}",
+                                matches_pending, ack.transaction_id
+                            );
+                            if matches_pending {
+                                if let Err(error) = remove_pending_onecoin_transfer(
+                                    &dispatcher_onecoin_path,
+                                    &dispatcher_onecoin_ledger,
+                                    &dispatcher_onecoin_outbox,
+                                    &ack.transaction_id,
+                                ) {
+                                    eprintln!(
+                                        "ONECOIN recipient ACK could not be persisted: {error}"
                                     );
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
+                    if let Ok(tx) = serde_json::from_slice::<OnecoinTransaction>(&payload) {
+                        let tx_sender_aweid = *AweId::from_public_key(&tx.sender).as_bytes();
+                        if tx.recipient == *dispatcher_node.identity.public.awe_id.as_bytes()
+                            && tx_sender_aweid == sender
+                        {
+                            let received = (|| -> Result<(), String> {
+                                let mut ledger = dispatcher_onecoin_ledger
+                                    .lock()
+                                    .map_err(|_| "ONECOIN ledger lock failed".to_string())?;
+                                let pending = dispatcher_onecoin_outbox
+                                    .lock()
+                                    .map_err(|_| "ONECOIN outbox lock failed".to_string())?;
+                                let mut next_ledger = ledger.clone();
+                                let sender_id = AweId::from_public_key(&tx.sender);
+                                next_ledger.ensure_member(&sender_id);
+                                next_ledger.ensure_member(&dispatcher_node.identity.public.awe_id);
+                                let changed = next_ledger.receive_transfer(
+                                    &tx,
+                                    &tx.sender,
+                                    &dispatcher_node.identity.public.awe_id,
+                                )?;
+                                if changed {
+                                    persist_onecoin_state(
+                                        &dispatcher_onecoin_path,
+                                        &next_ledger,
+                                        &pending,
+                                    )?;
+                                    *ledger = next_ledger;
+                                }
+                                Ok(())
+                            })();
+                            match received {
+                                Ok(()) => {
+                                    eprintln!(
+                                        "ONECOIN transfer persisted receiver={} transaction={}",
+                                        dispatcher_node.identity.public.awe_id.to_hex(),
+                                        hex::encode(tx.id())
+                                    );
+                                    let ack = OnecoinTransferAck {
+                                        transaction_id: hex::encode(tx.id()),
+                                        recipient: *dispatcher_node
+                                            .identity
+                                            .public
+                                            .awe_id
+                                            .as_bytes(),
+                                    };
+                                    if let Ok(bytes) = serde_json::to_vec(&ack) {
+                                        match tokio::time::timeout(
+                                            std::time::Duration::from_secs(8),
+                                            dispatcher_node.send_to_peer_confirmed(
+                                                &sender,
+                                                policy::ONECOIN_TRANSFER_STREAM,
+                                                bytes,
+                                            ),
+                                        )
+                                        .await
+                                        {
+                                            Ok(Ok(_)) => eprintln!(
+                                                "ONECOIN transfer application ACK delivered to peer {} for {}",
+                                                hex::encode(sender),
+                                                hex::encode(tx.id())
+                                            ),
+                                            Ok(Err(error)) => eprintln!(
+                                                "ONECOIN transfer ACK send failed for peer {} transaction {}: {error}",
+                                                hex::encode(sender),
+                                                hex::encode(tx.id())
+                                            ),
+                                            Err(_) => eprintln!(
+                                                "ONECOIN transfer ACK send timed out for peer {} transaction {}",
+                                                hex::encode(sender),
+                                                hex::encode(tx.id())
+                                            ),
+                                        }
+                                    }
+                                }
+                                Err(error) => {
+                                    eprintln!("ONECOIN incoming transfer was not applied: {error}")
                                 }
                             }
                         }
@@ -2317,6 +3233,12 @@ async fn run_product() -> Result<()> {
     println!("Native UI: AWENET desktop window");
 
     let native_ui_addr = ui_addr;
+    // The HTTP listener owns a node clone; the outbox retry worker keeps the
+    // original handle so it can reconnect to peers independently.
+    let ui_node = node.clone();
+    let ui_onecoin_ledger = onecoin_ledger.clone();
+    let ui_onecoin_outbox = onecoin_outbox.clone();
+    let ui_onecoin_path = onecoin_path.clone();
     tokio::spawn(async move {
         loop {
             let (stream, _) = match listener.accept().await {
@@ -2326,7 +3248,7 @@ async fn run_product() -> Result<()> {
                     continue;
                 }
             };
-            let api_node = node.clone();
+            let api_node = ui_node.clone();
             let api_messenger = messenger.clone();
             let api_federation = federation_state.clone();
             let api_storage = storage.clone();
@@ -2335,11 +3257,14 @@ async fn run_product() -> Result<()> {
             let api_federation_path = federation_path.clone();
             let api_policy = policy_state.clone();
             let api_community = community.clone();
-            let api_onecoin_ledger = onecoin_ledger.clone();
-            let api_onecoin_path = onecoin_path.clone();
+            let api_onecoin_ledger = ui_onecoin_ledger.clone();
+            let api_onecoin_outbox = ui_onecoin_outbox.clone();
+            let api_onecoin_path = ui_onecoin_path.clone();
             let api_onecoin_offers_path = onecoin_offers_path.clone();
             let api_contribution = contribution.clone();
             let api_contribution_path = contribution_path.clone();
+            let api_host = host.clone();
+            let api_host_root = host_root.clone();
             tokio::spawn(async move {
                 if let Err(e) = serve_ui(
                     stream,
@@ -2354,10 +3279,13 @@ async fn run_product() -> Result<()> {
                         policy_state: api_policy,
                         community: api_community,
                         onecoin_ledger: api_onecoin_ledger,
+                        onecoin_outbox: api_onecoin_outbox,
                         onecoin_path: api_onecoin_path,
                         onecoin_offers_path: api_onecoin_offers_path,
                         contribution: api_contribution,
                         contribution_path: api_contribution_path,
+                        host: api_host,
+                        host_root: api_host_root,
                     },
                 )
                 .await
@@ -2365,6 +3293,36 @@ async fn run_product() -> Result<()> {
                     eprintln!("UI request error: {e}");
                 }
             });
+        }
+    });
+
+    // Retry durable outgoing transfers. Duplicate delivery is safe because the
+    // receiver tracks transaction IDs and sender nonces before crediting a wallet.
+    let retry_node = node.clone();
+    let retry_outbox = onecoin_outbox.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            let pending = match retry_outbox.lock() {
+                Ok(queue) => queue
+                    .iter()
+                    .map(|(id, tx)| (id.clone(), tx.clone()))
+                    .collect::<Vec<_>>(),
+                Err(_) => continue,
+            };
+            for (id, tx) in pending {
+                let Ok(bytes) = serde_json::to_vec(&tx) else {
+                    continue;
+                };
+                // Keep the item queued until the recipient's application ACK
+                // arrives on the same stream and passes identity/transaction checks.
+                if let Err(error) = retry_node
+                    .send_to_peer(&tx.recipient, policy::ONECOIN_TRANSFER_STREAM, bytes)
+                    .await
+                {
+                    eprintln!("ONECOIN pending transfer {id} will be retried: {error}");
+                }
+            }
         }
     });
 
@@ -2518,5 +3476,132 @@ async fn main() -> Result<()> {
             .await
         }
         _ => usage(),
+    }
+}
+
+#[cfg(test)]
+mod amount_parser_tests {
+    use super::*;
+
+    fn temporary_state_path(name: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("awenet-{name}-{}-{nonce}.json", std::process::id()))
+    }
+
+    #[test]
+    fn persisted_onecoin_state_roundtrips_and_overwrites_atomically() {
+        let path = temporary_state_path("outbox-roundtrip");
+        let sender = Identity::generate(Username::new("persist-sender").unwrap());
+        let recipient = Identity::generate(Username::new("persist-recipient").unwrap());
+        let extra = Identity::generate(Username::new("persist-extra").unwrap());
+        let mut ledger = OnecoinLedger::default();
+        ledger
+            .initialize_genesis(&[
+                sender.public.awe_id.clone(),
+                recipient.public.awe_id.clone(),
+            ])
+            .unwrap();
+        let tx = OnecoinTransaction::new(
+            &sender,
+            0,
+            &recipient.public.awe_id,
+            7,
+            Some("durable pending transfer".into()),
+        );
+        let tx_id = hex::encode(tx.id());
+        let pending = BTreeMap::from([(tx_id.clone(), tx.clone())]);
+
+        persist_onecoin_state(&path, &ledger, &pending).unwrap();
+        let loaded = load_persisted_onecoin_state(&path).unwrap();
+        assert_eq!(loaded.format_version, 1);
+        assert_eq!(loaded.ledger.members.len(), 2);
+        assert_eq!(loaded.pending_transfers.get(&tx_id), Some(&tx));
+
+        let mut changed_ledger = loaded.ledger;
+        changed_ledger.ensure_member(&extra.public.awe_id);
+        persist_onecoin_state(&path, &changed_ledger, &BTreeMap::new()).unwrap();
+        let changed = load_persisted_onecoin_state(&path).unwrap();
+        assert_eq!(changed.ledger.members.len(), 3);
+        assert!(changed.pending_transfers.is_empty());
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn persisted_onecoin_state_migrates_legacy_ledger_and_rejects_corruption() {
+        let path = temporary_state_path("legacy-migration");
+        let identity = Identity::generate(Username::new("persist-migration").unwrap());
+        let mut legacy = OnecoinLedger::default();
+        legacy
+            .initialize_genesis(std::slice::from_ref(&identity.public.awe_id))
+            .unwrap();
+        fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+
+        let migrated = load_persisted_onecoin_state(&path).unwrap();
+        assert_eq!(migrated.format_version, 1);
+        assert_eq!(
+            migrated.ledger.balance_atoms(&identity.public.awe_id),
+            legacy.balance_atoms(&identity.public.awe_id)
+        );
+        assert!(migrated.pending_transfers.is_empty());
+
+        fs::write(&path, b"{ definitely not valid JSON").unwrap();
+        assert!(load_persisted_onecoin_state(&path).is_err());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn contribution_parser_rejects_narrow_integer_overflow_and_invalid_types() {
+        assert!(
+            parse_resource_contribution(&serde_json::json!({"cpu_cores":4294967296u64})).is_err()
+        );
+        assert!(
+            parse_resource_contribution(&serde_json::json!({"online_hours":65536u64})).is_err()
+        );
+        assert!(parse_resource_contribution(&serde_json::json!({"uptime_bps":10001u64})).is_err());
+        assert!(parse_resource_contribution(&serde_json::json!({"storage_bytes":1.5})).is_err());
+        assert!(parse_resource_contribution(&serde_json::json!({"cpu_cores":"4"})).is_err());
+        assert!(parse_resource_contribution(&serde_json::json!({"online_hours":25})).is_err());
+        assert_eq!(
+            parse_resource_contribution(&serde_json::json!({"cpu_cores":4,"storage_bytes":1024}))
+                .unwrap()
+                .cpu_cores,
+            4
+        );
+    }
+
+    #[test]
+    fn atom_formatter_preserves_all_eighteen_decimal_places() {
+        assert_eq!(format_onecoin_atoms(1), "0.000000000000000001");
+        assert_eq!(format_onecoin_atoms(ATOMS_PER_COIN / 2), "0.5");
+        assert_eq!(format_onecoin_atoms(ATOMS_PER_COIN), "1");
+    }
+
+    #[test]
+    fn coin_decimal_parser_uses_eighteen_atom_places() {
+        assert_eq!(
+            parse_onecoin_atoms(&serde_json::json!("0.5")).unwrap(),
+            ATOMS_PER_COIN / 2
+        );
+        assert_eq!(
+            parse_onecoin_atoms(&serde_json::json!("0.000000000000000001")).unwrap(),
+            1
+        );
+        assert_eq!(
+            parse_onecoin_atoms(&serde_json::json!("1.00000001")).unwrap(),
+            ATOMS_PER_COIN + 10_000_000_000
+        );
+        assert!(parse_onecoin_atoms(&serde_json::json!("1.0000000000000000001")).is_err());
+        assert!(parse_onecoin_atoms(&serde_json::json!("1e-3")).is_err());
+        assert!(parse_onecoin_atoms(&serde_json::json!("-1")).is_err());
+        assert!(parse_onecoin_atoms(&serde_json::json!("")).is_err());
+        assert!(parse_onecoin_atoms(&serde_json::json!(null)).is_err());
+        assert!(parse_onecoin_atoms(&serde_json::json!(
+            "340282366920938463463.374607431768211456"
+        ))
+        .is_err());
     }
 }

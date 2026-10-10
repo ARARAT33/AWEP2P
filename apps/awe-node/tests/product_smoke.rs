@@ -8,6 +8,17 @@ use std::{
     time::{Duration, Instant},
 };
 
+fn raw_response(addr: &str, request: &str) -> String {
+    let mut stream = TcpStream::connect(addr).expect("connect");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .expect("read timeout");
+    stream.write_all(request.as_bytes()).expect("write request");
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response).expect("read response");
+    String::from_utf8_lossy(&response).into_owned()
+}
+
 fn request(addr: &str, request: &str) -> String {
     let mut stream = TcpStream::connect(addr).expect("connect");
     stream
@@ -118,6 +129,71 @@ fn three_node_product_smoke() {
         wait_for_health("127.0.0.1:46202");
         wait_for_health("127.0.0.1:46203");
 
+        let site_id = "a".repeat(64);
+        let site_response = raw_response(
+            "127.0.0.1:46201",
+            &format!(
+                "GET /site/{site_id}/index.html HTTP/1.1\r\nHost: 127.0.0.1:46201\r\nConnection: close\r\n\r\n"
+            ),
+        );
+        assert!(
+            site_response.starts_with("HTTP/1.1 302 Found"),
+            "hosted site should redirect to its isolated origin: {site_response}"
+        );
+        assert!(
+            site_response.contains(&format!(
+                "Location: http://{site_id}.localhost:46201/site/{site_id}/index.html"
+            )),
+            "site redirect must use a per-site localhost origin: {site_response}"
+        );
+
+        let isolated_api = raw_response(
+            "127.0.0.1:46201",
+            &format!(
+                "GET /api/status HTTP/1.1\r\nHost: {site_id}.localhost:46201\r\nConnection: close\r\n\r\n"
+            ),
+        );
+        assert!(
+            isolated_api.starts_with("HTTP/1.1 404 Not Found"),
+            "isolated hosted-site origin must not access the node API: {isolated_api}"
+        );
+        assert!(
+            !isolated_api.contains("\"node_id\""),
+            "isolated hosted-site origin must not receive node status data"
+        );
+
+        let isolated_preflight = raw_response(
+            "127.0.0.1:46201",
+            &format!(
+                "OPTIONS /api/status HTTP/1.1\r\nHost: {site_id}.localhost:46201\r\nOrigin: http://{site_id}.localhost:46201\r\nAccess-Control-Request-Method: GET\r\nConnection: close\r\n\r\n"
+            ),
+        );
+        assert!(
+            isolated_preflight.starts_with("HTTP/1.1 404 Not Found"),
+            "isolated hosted-site origin must not obtain API preflight access: {isolated_preflight}"
+        );
+
+        let cross_site = raw_response(
+            "127.0.0.1:46201",
+            &format!(
+                "GET /site/{}/index.html HTTP/1.1\r\nHost: {site_id}.localhost:46201\r\nConnection: close\r\n\r\n",
+                "b".repeat(64)
+            ),
+        );
+        assert!(
+            cross_site.starts_with("HTTP/1.1 404 Not Found"),
+            "a site origin must not serve another site's content: {cross_site}"
+        );
+
+        let forbidden = raw_response(
+            "127.0.0.1:46201",
+            "POST /api/onebank/contribution HTTP/1.1\r\nHost: 127.0.0.1:46201\r\nOrigin: https://untrusted.example\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+        );
+        assert!(
+            forbidden.starts_with("HTTP/1.1 403 Forbidden"),
+            "cross-origin API mutation must be rejected: {forbidden}"
+        );
+
         for (port, ui) in [
             (46101u16, 46201u16),
             (46102u16, 46202u16),
@@ -144,6 +220,101 @@ fn three_node_product_smoke() {
             "replication policy: {storage}"
         );
 
+        let published_offer = post(
+            "127.0.0.1:46201",
+            "/api/onebank/exchange/offers",
+            r#"{"offer":{"side":"sell","amount":"0.5","price":"1.25","currency":"USD","rail":"BankTransfer"}}"#,
+        );
+        let published_offer: serde_json::Value =
+            serde_json::from_str(&published_offer).expect("published offer JSON");
+        assert_eq!(
+            published_offer.get("status").and_then(|v| v.as_str()),
+            Some("published"),
+            "offer should be published"
+        );
+        let offer = published_offer.get("offer").expect("signed offer wrapper");
+        assert_eq!(
+            offer.get("signature_verified").and_then(|v| v.as_bool()),
+            Some(true),
+            "offer must be signed by the publishing node"
+        );
+        assert_eq!(
+            offer
+                .get("owner_public_key")
+                .and_then(|v| v.as_str())
+                .map(str::len),
+            Some(64),
+            "offer must retain the signer's public key"
+        );
+        let published_id = offer.get("id").and_then(|v| v.as_str()).expect("offer id");
+        let offers: serde_json::Value =
+            serde_json::from_str(&get("127.0.0.1:46201", "/api/onebank/exchange/offers"))
+                .expect("verified offer list JSON");
+        assert!(
+            offers.as_array().is_some_and(|list| {
+                list.iter()
+                    .any(|item| item.get("id").and_then(|v| v.as_str()) == Some(published_id))
+            }),
+            "verified listing should be returned"
+        );
+
+        let offers_path = dirs[0].join("onecoin-exchange-offers.json");
+        let mut stored: serde_json::Value =
+            serde_json::from_slice(&fs::read(&offers_path).expect("read persisted offers"))
+                .expect("persisted offer JSON");
+        stored.as_array_mut().expect("offer array")[0]["owner_public_key"] =
+            serde_json::Value::String("00".repeat(32));
+        fs::write(
+            &offers_path,
+            serde_json::to_vec_pretty(&stored).expect("serialize tampered offer"),
+        )
+        .expect("write tampered offer");
+        let after_tamper: serde_json::Value =
+            serde_json::from_str(&get("127.0.0.1:46201", "/api/onebank/exchange/offers"))
+                .expect("offer list after tamper");
+        assert_eq!(
+            after_tamper.as_array().map(Vec::len),
+            Some(0),
+            "the API must not return an offer with a tampered signer key"
+        );
+
+        // Queue a transfer while the recipient is offline; it must survive
+        // that failure and be retried after the peer connects.
+        let node2_pre: serde_json::Value =
+            serde_json::from_str(&get("127.0.0.1:46202", "/api/onebank/wallet"))
+                .expect("node2 wallet before connection");
+        let node2_id_pre = node2_pre
+            .get("awe_id")
+            .and_then(|v| v.as_str())
+            .expect("node2 AWEID before connection")
+            .to_string();
+        let node2_balance_pre = node2_pre
+            .get("balance_atoms")
+            .and_then(|v| v.as_u64())
+            .expect("node2 balance before connection");
+        let queued_transfer = post(
+            "127.0.0.1:46201",
+            "/api/onebank/wallet/send",
+            &format!(
+                r#"{{"recipient":"{node2_id_pre}","amount_coins":"0.25","memo":"outbox retry smoke"}}"#
+            ),
+        );
+        assert!(
+            queued_transfer.contains(r#""status":"accepted""#)
+                && queued_transfer.contains(r#""recipient_pending":true"#),
+            "offline transfer should be accepted into the durable outbox: {queued_transfer}"
+        );
+        let queued_wallet: serde_json::Value =
+            serde_json::from_str(&get("127.0.0.1:46201", "/api/onebank/wallet"))
+                .expect("sender wallet with pending transfer");
+        assert!(
+            queued_wallet
+                .get("pending_transfers")
+                .and_then(|v| v.as_u64())
+                .is_some_and(|count| count >= 1),
+            "pending ONECOIN transfer must be visible in wallet status: {queued_wallet}"
+        );
+
         let connect2 = post(
             "127.0.0.1:46201",
             "/api/connect?address=127.0.0.1%3A46102",
@@ -165,6 +336,43 @@ fn three_node_product_smoke() {
         );
 
         thread::sleep(Duration::from_secs(2));
+
+        let retry_deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let recipient: serde_json::Value =
+                serde_json::from_str(&get("127.0.0.1:46202", "/api/onebank/wallet"))
+                    .expect("recipient wallet while retrying outbox");
+            let current = recipient
+                .get("balance_atoms")
+                .and_then(|v| v.as_u64())
+                .expect("recipient balance while retrying outbox");
+            if current >= node2_balance_pre + 250_000_000_000_000_000u64 {
+                break;
+            }
+            if Instant::now() >= retry_deadline {
+                panic!("durable ONECOIN outbox did not deliver after connection: {recipient}");
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        let ack_deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let sender_wallet_after_retry: serde_json::Value =
+                serde_json::from_str(&get("127.0.0.1:46201", "/api/onebank/wallet"))
+                    .expect("sender wallet after outbox delivery");
+            if sender_wallet_after_retry
+                .get("pending_transfers")
+                .and_then(|v| v.as_u64())
+                == Some(0)
+            {
+                break;
+            }
+            if Instant::now() >= ack_deadline {
+                panic!(
+                    "recipient applied transfer but sender outbox was not cleared by application ACK: {sender_wallet_after_retry}"
+                );
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
 
         let status = get("127.0.0.1:46201", "/api/status");
         assert!(
@@ -334,6 +542,14 @@ fn three_node_product_smoke() {
             .and_then(|g| g.get("id"))
             .and_then(|v| v.as_str())
             .expect("channel id");
+        assert!(
+            channel
+                .get("delivered_peers")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                > 0,
+            "channel update was not acknowledged by any peer: {channel_create}"
+        );
         let channel_sync_deadline = Instant::now() + Duration::from_secs(5);
         loop {
             let channels = get("127.0.0.1:46202", "/api/channels");
@@ -400,6 +616,37 @@ fn three_node_product_smoke() {
         let store = get("127.0.0.1:46201", "/api/store/catalog");
         assert!(store.contains(r#""status":"ok""#), "store API: {store}");
 
+        // Exercise Creator Studio's real local publication endpoint and its validation.
+        let wasm_hex = "0061736d01000000";
+        let publish_app = post(
+            "127.0.0.1:46201",
+            "/api/store/publish",
+            &format!(
+                r#"{{"id":"smoke.creator.app","name":"Creator Smoke Test","version":"1.0.0","kind":"Wasm","entry":"/app.wasm","permissions":[],"price_onecoin_atoms":null,"files":[{{"path":"/app.wasm","data_hex":"{wasm_hex}"}}]}}"#
+            ),
+        );
+        assert!(
+            publish_app.contains(r#""status":"published""#)
+                && publish_app.contains(r#""scope":"local-store""#),
+            "Creator Studio package publication: {publish_app}"
+        );
+        let catalog_after_publish = get("127.0.0.1:46201", "/api/store/catalog");
+        assert!(
+            catalog_after_publish.contains("smoke.creator.app"),
+            "published package missing from verified catalog: {catalog_after_publish}"
+        );
+        let bad_entry = post(
+            "127.0.0.1:46201",
+            "/api/store/publish",
+            &format!(
+                r#"{{"id":"smoke.bad.entry","name":"Invalid Entry","version":"1.0.0","kind":"Wasm","entry":"/missing.wasm","permissions":[],"price_onecoin_atoms":null,"files":[{{"path":"/app.wasm","data_hex":"{wasm_hex}"}}]}}"#
+            ),
+        );
+        assert!(
+            bad_entry.contains(r#""status":"error""#) && bad_entry.contains("entry must reference"),
+            "invalid package entry should be rejected: {bad_entry}"
+        );
+
         let payload = "AWEP2P-REAL-PRODUCT-SMOKE";
         let hex = payload
             .as_bytes()
@@ -428,6 +675,32 @@ fn three_node_product_smoke() {
             downloaded.contains(r#""status":"reconstructed""#)
                 && downloaded.contains(&format!(r#""data_hex":"{hex}""#)),
             "storage get: {downloaded}"
+        );
+
+        let site_publish = post(
+            "127.0.0.1:46201",
+            "/api/sites/publish",
+            r#"{"domain":"smoke-site","version":1,"files":[{"path":"/index.html","content_type":"text/html; charset=utf-8","content":"<!doctype html><title>AWENET site smoke</title>"}]}"#,
+        );
+        assert!(
+            site_publish.contains(r#""status":"published""#),
+            "site publish: {site_publish}"
+        );
+        let site: serde_json::Value =
+            serde_json::from_str(&site_publish).expect("site publish json");
+        let site_id = site
+            .get("site_id")
+            .and_then(|v| v.as_str())
+            .expect("published site ID");
+        let served_site = raw_response(
+            "127.0.0.1:46201",
+            &format!(
+                "GET /site/{site_id}/index.html HTTP/1.1\r\nHost: {site_id}.localhost:46201\r\nConnection: close\r\n\r\n"
+            ),
+        );
+        assert!(
+            served_site.contains("AWENET site smoke"),
+            "published site content was not served: {served_site}"
         );
     });
 
