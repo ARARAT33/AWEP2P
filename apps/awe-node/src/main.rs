@@ -2534,7 +2534,6 @@ async fn main() -> Result<()> {
     }
 }
 
-
 #[cfg(test)]
 mod policy_lock_tests {
     use super::*;
@@ -2546,7 +2545,8 @@ mod policy_lock_tests {
         let _ = std::thread::spawn(move || {
             let _guard = poisoner.lock().unwrap();
             panic!("poison policy lock for regression test");
-        }).join();
+        })
+        .join();
 
         assert!(!current_policy(&state).enabled);
     }
