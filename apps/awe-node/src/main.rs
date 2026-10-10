@@ -299,6 +299,7 @@ async fn serve_ui(mut stream: tokio::net::TcpStream, state: UiState) -> Result<(
             ("200 OK", "application/json; charset=utf-8", serde_json::json!({
                 "awe_id": id.to_hex(),
                 "balance_atoms": balance_atoms,
+                "balance_atoms_decimal": balance_atoms.to_string(),
                 "balance_coins": balance_atoms / ATOMS_PER_COIN,
                 "tier": tier,
                 "fee_bps": 100,
