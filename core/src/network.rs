@@ -415,6 +415,11 @@ async fn read_frame(s: &mut TcpStream) -> Result<Vec<u8>, NetworkError> {
     s.read_exact(&mut b).await?;
     Ok(b)
 }
+/// Bind the claimed network identity to the public key that verifies the handshake.
+fn peer_id_matches_public_key(id: &[u8; 32], public_key: &[u8; 32]) -> bool {
+    crate::identity::AweId::from_public_key(public_key).as_bytes() == id
+}
+
 fn hello_bytes(
     v: u16,
     id: &[u8; 32],
@@ -506,6 +511,11 @@ async fn handshake(
     }
     if rid == id {
         return Err(NetworkError::Protocol("self connection".into()));
+    }
+    // A valid signature alone does not prove that the claimed AWE-ID belongs to
+    // the signing key. Enforce the protocol's public-key-derived identity binding.
+    if !peer_id_matches_public_key(&rid, &rpk) {
+        return Err(NetworkError::Authentication);
     }
     let rsig: [u8; 64] = rsig
         .as_slice()
@@ -1610,6 +1620,17 @@ mod tests {
         let key = [3u8; 32];
         let payload = vec![0u8; A2P2_MAX_PAYLOAD + 1];
         assert!(a2p2_seal(&payload, &key).is_err());
+    }
+
+    #[test]
+    fn claimed_peer_id_must_match_signing_public_key() {
+        let identity = Identity::generate(crate::identity::Username::new("peer-test").unwrap());
+        let id = *identity.public.awe_id.as_bytes();
+        assert!(peer_id_matches_public_key(&id, &identity.public.public_key));
+
+        let mut forged_id = id;
+        forged_id[0] ^= 0x80;
+        assert!(!peer_id_matches_public_key(&forged_id, &identity.public.public_key));
     }
 
     #[test]
