@@ -55,6 +55,16 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+  ui-syntax:
+    name: Desktop UI JavaScript syntax
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check application JavaScript
+        run: |
+          node --check apps/awe-desktop/ui/app.js
+          node --check apps/awe-desktop/ui/onecoin.js
+
   architecture:
     name: Architecture integrity checks
     runs-on: ubuntu-24.04
