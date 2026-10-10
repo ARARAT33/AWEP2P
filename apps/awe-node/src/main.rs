@@ -176,7 +176,112 @@ fn load_identity(path: &PathBuf, password: &str, username: &str) -> Result<Ident
 }
 
 async fn http_response(status: &str, content_type: &str, body: &str) -> Vec<u8> {
-    format!("HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: content-type\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}", body.len()).into_bytes()
+    format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+    .into_bytes()
+}
+
+fn local_host_authority_is_loopback(host: &str) -> bool {
+    if let Ok(address) = host.parse::<SocketAddr>() {
+        return address.ip().is_loopback();
+    }
+
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+
+    host.rsplit_once(':')
+        .map(|(name, port)| {
+            name.eq_ignore_ascii_case("localhost") && port.parse::<u16>().is_ok()
+        })
+        .unwrap_or(false)
+}
+
+fn request_origin_allowed(request: &str) -> bool {
+    let headers = request.split("\r\n\r\n").next().unwrap_or("");
+    let mut host = None;
+    let mut origin = None;
+
+    for line in headers.lines().skip(1) {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.eq_ignore_ascii_case("host") {
+            host = Some(value.trim());
+        } else if name.eq_ignore_ascii_case("origin") {
+            origin = Some(value.trim());
+        }
+    }
+
+    let Some(origin) = origin else {
+        // Native/local non-browser clients do not send Origin.
+        return true;
+    };
+    let Some(authority) = origin.strip_prefix("http://") else {
+        return false;
+    };
+    if authority.is_empty()
+        || authority.contains('/')
+        || authority.contains('@')
+        || authority.contains('?')
+        || authority.contains('#')
+    {
+        return false;
+    }
+
+    host.map(|host| {
+        host.eq_ignore_ascii_case(authority) && local_host_authority_is_loopback(host)
+    })
+    .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod local_origin_tests {
+    use super::request_origin_allowed;
+
+    fn request(host: &str, origin: Option<&str>) -> String {
+        let mut request = format!("POST /api/connect HTTP/1.1\r\nHost: {host}\r\n");
+        if let Some(origin) = origin {
+            request.push_str(&format!("Origin: {origin}\r\n"));
+        }
+        request.push_str("\r\naddress=127.0.0.1%3A41000");
+        request
+    }
+
+    #[test]
+    fn accepts_matching_loopback_origin() {
+        assert!(request_origin_allowed(&request(
+            "127.0.0.1:41800",
+            Some("http://127.0.0.1:41800")
+        )));
+        assert!(request_origin_allowed(&request(
+            "localhost:41800",
+            Some("http://localhost:41800")
+        )));
+    }
+
+    #[test]
+    fn rejects_cross_origin_and_non_loopback_hosts() {
+        assert!(!request_origin_allowed(&request(
+            "127.0.0.1:41800",
+            Some("http://attacker.example")
+        )));
+        assert!(!request_origin_allowed(&request(
+            "attacker.example:41800",
+            Some("http://attacker.example:41800")
+        )));
+        assert!(!request_origin_allowed(&request(
+            "127.0.0.1:41800",
+            Some("null")
+        )));
+    }
+
+    #[test]
+    fn allows_non_browser_local_clients_without_origin() {
+        assert!(request_origin_allowed(&request("127.0.0.1:41800", None)));
+    }
 }
 
 async fn read_http_request(stream: &mut tokio::net::TcpStream) -> Result<String> {
@@ -292,6 +397,17 @@ async fn serve_ui(mut stream: tokio::net::TcpStream, state: UiState) -> Result<(
         contribution_path,
     } = state;
     let request = read_http_request(&mut stream).await?;
+    if !request_origin_allowed(&request) {
+        let response = http_response(
+            "403 Forbidden",
+            "text/plain; charset=utf-8",
+            "Cross-origin requests are not allowed",
+        )
+        .await;
+        stream.write_all(&response).await?;
+        stream.shutdown().await?;
+        return Ok(());
+    }
     let request_line = request.lines().next().unwrap_or("");
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or("GET");
