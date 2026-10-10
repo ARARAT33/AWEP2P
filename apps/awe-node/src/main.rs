@@ -44,6 +44,19 @@ type StorageState = Arc<LocalNodeStore>;
 type PendingAcks = Arc<Mutex<BTreeMap<[u8; 16], StorageShardAck>>>;
 type PendingShards = Arc<Mutex<BTreeMap<[u8; 16], StorageShardTransfer>>>;
 type PolicyState = Arc<Mutex<NetworkPolicy>>;
+
+/// Read runtime policy without silently replacing a poisoned policy with permissive defaults.
+/// A poisoned policy lock disables policy-controlled operations until restart/recovery.
+fn current_policy(state: &PolicyState) -> NetworkPolicy {
+    match state.lock() {
+        Ok(policy) => policy.clone(),
+        Err(_) => NetworkPolicy {
+            enabled: false,
+            ..NetworkPolicy::default()
+        },
+    }
+}
+
 type CommunityState = Arc<Mutex<serde_json::Value>>;
 type ConsensusState = Arc<Mutex<Option<OnecoinConsensusRuntime>>>;
 type OnecoinLedgerState = Arc<Mutex<OnecoinLedger>>;
@@ -163,7 +176,112 @@ fn load_identity(path: &PathBuf, password: &str, username: &str) -> Result<Ident
 }
 
 async fn http_response(status: &str, content_type: &str, body: &str) -> Vec<u8> {
-    format!("HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: content-type\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}", body.len()).into_bytes()
+    format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+    .into_bytes()
+}
+
+fn local_host_authority_is_loopback(host: &str) -> bool {
+    if let Ok(address) = host.parse::<SocketAddr>() {
+        return address.ip().is_loopback();
+    }
+
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+
+    host.rsplit_once(':')
+        .map(|(name, port)| {
+            name.eq_ignore_ascii_case("localhost") && port.parse::<u16>().is_ok()
+        })
+        .unwrap_or(false)
+}
+
+fn request_origin_allowed(request: &str) -> bool {
+    let headers = request.split("\r\n\r\n").next().unwrap_or("");
+    let mut host = None;
+    let mut origin = None;
+
+    for line in headers.lines().skip(1) {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.eq_ignore_ascii_case("host") {
+            host = Some(value.trim());
+        } else if name.eq_ignore_ascii_case("origin") {
+            origin = Some(value.trim());
+        }
+    }
+
+    let Some(origin) = origin else {
+        // Native/local non-browser clients do not send Origin.
+        return true;
+    };
+    let Some(authority) = origin.strip_prefix("http://") else {
+        return false;
+    };
+    if authority.is_empty()
+        || authority.contains('/')
+        || authority.contains('@')
+        || authority.contains('?')
+        || authority.contains('#')
+    {
+        return false;
+    }
+
+    host.map(|host| {
+        host.eq_ignore_ascii_case(authority) && local_host_authority_is_loopback(host)
+    })
+    .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod local_origin_tests {
+    use super::request_origin_allowed;
+
+    fn request(host: &str, origin: Option<&str>) -> String {
+        let mut request = format!("POST /api/connect HTTP/1.1\r\nHost: {host}\r\n");
+        if let Some(origin) = origin {
+            request.push_str(&format!("Origin: {origin}\r\n"));
+        }
+        request.push_str("\r\naddress=127.0.0.1%3A41000");
+        request
+    }
+
+    #[test]
+    fn accepts_matching_loopback_origin() {
+        assert!(request_origin_allowed(&request(
+            "127.0.0.1:41800",
+            Some("http://127.0.0.1:41800")
+        )));
+        assert!(request_origin_allowed(&request(
+            "localhost:41800",
+            Some("http://localhost:41800")
+        )));
+    }
+
+    #[test]
+    fn rejects_cross_origin_and_non_loopback_hosts() {
+        assert!(!request_origin_allowed(&request(
+            "127.0.0.1:41800",
+            Some("http://attacker.example")
+        )));
+        assert!(!request_origin_allowed(&request(
+            "attacker.example:41800",
+            Some("http://attacker.example:41800")
+        )));
+        assert!(!request_origin_allowed(&request(
+            "127.0.0.1:41800",
+            Some("null")
+        )));
+    }
+
+    #[test]
+    fn allows_non_browser_local_clients_without_origin() {
+        assert!(request_origin_allowed(&request("127.0.0.1:41800", None)));
+    }
 }
 
 async fn read_http_request(stream: &mut tokio::net::TcpStream) -> Result<String> {
@@ -279,6 +397,17 @@ async fn serve_ui(mut stream: tokio::net::TcpStream, state: UiState) -> Result<(
         contribution_path,
     } = state;
     let request = read_http_request(&mut stream).await?;
+    if !request_origin_allowed(&request) {
+        let response = http_response(
+            "403 Forbidden",
+            "text/plain; charset=utf-8",
+            "Cross-origin requests are not allowed",
+        )
+        .await;
+        stream.write_all(&response).await?;
+        stream.shutdown().await?;
+        return Ok(());
+    }
     let request_line = request.lines().next().unwrap_or("");
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or("GET");
@@ -452,7 +581,7 @@ async fn serve_ui(mut stream: tokio::net::TcpStream, state: UiState) -> Result<(
             "protocol": 1
         }).to_string()),
         "/api/policy" => {
-            let policy = policy_state.lock().map(|p| p.clone()).unwrap_or_default();
+            let policy = current_policy(&policy_state);
             ("200 OK", "application/json; charset=utf-8", serde_json::to_string(&policy).unwrap_or_else(|_| "{}".into()))
         },
         "/api/status" => {
@@ -816,7 +945,7 @@ async fn serve_ui(mut stream: tokio::net::TcpStream, state: UiState) -> Result<(
             if recipient.is_empty() || text.is_empty() {
                 ("400 Bad Request", "application/json; charset=utf-8", serde_json::json!({"status":"error","error":"recipient and text are required"}).to_string())
             } else {
-                let runtime_policy = policy_state.lock().map(|p| p.clone()).unwrap_or_default();
+                let runtime_policy = current_policy(&policy_state);
                 if !runtime_policy.allows_message(text.len()) || !runtime_policy.allows_stream(policy::MESSENGER_STREAM) {
                     ("413 Payload Too Large", "application/json; charset=utf-8", serde_json::json!({"status":"rejected","error":"message rejected by local AWENET policy"}).to_string())
                 } else {
@@ -896,7 +1025,7 @@ async fn serve_ui(mut stream: tokio::net::TcpStream, state: UiState) -> Result<(
                     Err(_) => ("400 Bad Request", "application/json; charset=utf-8",
                         serde_json::json!({"status":"error","error":"data_hex is not valid hexadecimal"}).to_string()),
                     Ok(data) => {
-                        let runtime_policy = policy_state.lock().map(|p| p.clone()).unwrap_or_default();
+                        let runtime_policy = current_policy(&policy_state);
                         if !runtime_policy.allows_upload(data.len()) || !runtime_policy.allows_stream(STORAGE_STREAM) {
                             ("403 Forbidden", "application/json; charset=utf-8", serde_json::json!({"status":"rejected","error":"upload rejected by local AWENET policy"}).to_string())
                         } else {
@@ -2518,5 +2647,23 @@ async fn main() -> Result<()> {
             .await
         }
         _ => usage(),
+    }
+}
+
+#[cfg(test)]
+mod policy_lock_tests {
+    use super::*;
+
+    #[test]
+    fn poisoned_policy_lock_fails_closed() {
+        let state: PolicyState = Arc::new(Mutex::new(NetworkPolicy::default()));
+        let poisoner = Arc::clone(&state);
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.lock().unwrap();
+            panic!("poison policy lock for regression test");
+        })
+        .join();
+
+        assert!(!current_policy(&state).enabled);
     }
 }

@@ -142,12 +142,16 @@ pub struct A2P2Datagram {
 }
 
 impl A2P2Datagram {
-    pub fn pack(payload: &[u8]) -> Result<Vec<u8>, NetworkError> {
-        Ok(a2p2_seal(payload, &[0u8; 32])?.to_vec())
+    /// Encrypt a datagram with the caller's session key.
+    ///
+    /// A fixed or public key must never be used for real network traffic.
+    pub fn pack(payload: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, NetworkError> {
+        Ok(a2p2_seal(payload, key)?.to_vec())
     }
 
-    pub fn unpack(data: &[u8]) -> Result<Vec<u8>, NetworkError> {
-        a2p2_open(data, &[0u8; 32])
+    /// Decrypt a datagram with the same authenticated session key used by the sender.
+    pub fn unpack(data: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, NetworkError> {
+        a2p2_open(data, key)
     }
 }
 
@@ -411,6 +415,11 @@ async fn read_frame(s: &mut TcpStream) -> Result<Vec<u8>, NetworkError> {
     s.read_exact(&mut b).await?;
     Ok(b)
 }
+/// Bind the claimed network identity to the public key that verifies the handshake.
+fn peer_id_matches_public_key(id: &[u8; 32], public_key: &[u8; 32]) -> bool {
+    crate::identity::AweId::from_public_key(public_key).as_bytes() == id
+}
+
 fn hello_bytes(
     v: u16,
     id: &[u8; 32],
@@ -502,6 +511,11 @@ async fn handshake(
     }
     if rid == id {
         return Err(NetworkError::Protocol("self connection".into()));
+    }
+    // A valid signature alone does not prove that the claimed AWE-ID belongs to
+    // the signing key. Enforce the protocol's public-key-derived identity binding.
+    if !peer_id_matches_public_key(&rid, &rpk) {
+        return Err(NetworkError::Authentication);
     }
     let rsig: [u8; 64] = rsig
         .as_slice()
@@ -1609,13 +1623,29 @@ mod tests {
     }
 
     #[test]
+    fn claimed_peer_id_must_match_signing_public_key() {
+        let identity = Identity::generate(crate::identity::Username::new("peer-test").unwrap());
+        let id = *identity.public.awe_id.as_bytes();
+        assert!(peer_id_matches_public_key(&id, &identity.public.public_key));
+
+        let mut forged_id = id;
+        forged_id[0] ^= 0x80;
+        assert!(!peer_id_matches_public_key(
+            &forged_id,
+            &identity.public.public_key
+        ));
+    }
+
+    #[test]
     fn a2p2_datagram_obfuscation_and_padding() {
         let payload = b"GET a2p2://site.awe/index.html HTTP/1.1";
-        let packed = A2P2Datagram::pack(payload).unwrap();
+        let key = [0x5Au8; 32];
+        let packed = A2P2Datagram::pack(payload, &key).unwrap();
         assert_eq!(packed.len(), A2P2_FIXED_PACKET_SIZE);
 
-        let unpacked = A2P2Datagram::unpack(&packed).unwrap();
+        let unpacked = A2P2Datagram::unpack(&packed, &key).unwrap();
         assert_eq!(unpacked, payload);
+        assert!(A2P2Datagram::unpack(&packed, &[0xA5u8; 32]).is_err());
     }
 
     #[test]
