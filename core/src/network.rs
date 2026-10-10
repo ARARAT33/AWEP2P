@@ -1443,12 +1443,12 @@ mod tests {
 
     #[test]
     fn ordinary_socket_closures_do_not_strike_a_peer() {
-        assert!(!warrants_peer_strike(&NetworkError::Io(std::io::Error::from(
-            std::io::ErrorKind::UnexpectedEof,
-        ))));
-        assert!(!warrants_peer_strike(&NetworkError::Io(std::io::Error::from(
-            std::io::ErrorKind::ConnectionReset,
-        ))));
+        assert!(!warrants_peer_strike(&NetworkError::Io(
+            std::io::Error::from(std::io::ErrorKind::UnexpectedEof,)
+        )));
+        assert!(!warrants_peer_strike(&NetworkError::Io(
+            std::io::Error::from(std::io::ErrorKind::ConnectionReset,)
+        )));
     }
 
     #[test]
