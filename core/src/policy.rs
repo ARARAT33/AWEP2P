@@ -166,13 +166,15 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let mut legacy = NetworkPolicy::default();
-        legacy.version = 1;
-        legacy.allowed_streams = vec![
-            MESSENGER_STREAM,
-            crate::data_plane::STORAGE_STREAM,
-            ONECOIN_TRANSFER_STREAM,
-        ];
+        let legacy = NetworkPolicy {
+            version: 1,
+            allowed_streams: vec![
+                MESSENGER_STREAM,
+                crate::data_plane::STORAGE_STREAM,
+                ONECOIN_TRANSFER_STREAM,
+            ],
+            ..NetworkPolicy::default()
+        };
         fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
 
         let migrated = load_or_create(&path).unwrap();
@@ -193,9 +195,11 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let mut custom = NetworkPolicy::default();
-        custom.version = 1;
-        custom.allowed_streams = vec![MESSENGER_STREAM];
+        let custom = NetworkPolicy {
+            version: 1,
+            allowed_streams: vec![MESSENGER_STREAM],
+            ..NetworkPolicy::default()
+        };
         fs::write(&path, serde_json::to_vec(&custom).unwrap()).unwrap();
 
         let migrated = load_or_create(&path).unwrap();
